@@ -3,6 +3,10 @@ export default function CaseLoading() {
     <main className="page" aria-busy="true" aria-label="Loading case details">
       <span className="back-link skeleton skeleton-text" style={{ width: "8rem" }} />
 
+      <span
+        className="skeleton skeleton-text"
+        style={{ width: "4rem", height: "1.4rem", marginTop: "1rem" }}
+      />
       <div className="skeleton skeleton-text skeleton-title" />
 
       <dl className="case-facts">

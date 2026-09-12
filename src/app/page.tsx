@@ -295,9 +295,20 @@ export default function Home() {
           <ul className="results">
             {data.results.map((docket) => (
               <li key={docket.docket_id} className="result">
-                <Link href={`/case/${docket.docket_id}`}>
-                  {docket.caseName}
-                </Link>
+                <div className="result-title">
+                  <span
+                    className={`status-badge ${
+                      docket.dateTerminated
+                        ? "status-closed"
+                        : "status-pending"
+                    }`}
+                  >
+                    {docket.dateTerminated ? "Closed" : "Pending"}
+                  </span>
+                  <Link href={`/case/${docket.docket_id}`}>
+                    {docket.caseName}
+                  </Link>
+                </div>
                 <div className="result-meta">
                   <span>{docket.court}</span>
                   {docket.docketNumber && (

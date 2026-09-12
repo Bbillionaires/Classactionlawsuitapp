@@ -124,9 +124,13 @@ export async function searchClassActionCases(
 
   const url = `${getBaseUrl()}/search/?${searchParams.toString()}`;
 
+  // CourtListener throttles this token to 5 requests/min. Docket search
+  // results don't change second-to-second, so cache each distinct query for
+  // a minute — this is the difference between one visitor's page load and
+  // ten visitors' page loads costing the same request budget.
   const response = await fetch(url, {
     headers: getAuthHeaders(),
-    cache: "no-store",
+    next: { revalidate: 60 },
   });
 
   if (!response.ok) {
@@ -170,7 +174,7 @@ export async function getDocketById(
 
   const response = await fetch(url, {
     headers: getAuthHeaders(),
-    cache: "no-store",
+    next: { revalidate: 60 },
   });
 
   if (!response.ok) {
@@ -220,7 +224,7 @@ export async function getDocketEntries(
 
   const response = await fetch(url, {
     headers: getAuthHeaders(),
-    cache: "no-store",
+    next: { revalidate: 60 },
   });
 
   if (!response.ok) {

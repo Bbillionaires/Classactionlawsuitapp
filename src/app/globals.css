@@ -118,9 +118,37 @@ a {
   gap: 1rem;
 }
 
+.result-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .result a {
   font-weight: 600;
   text-decoration: underline;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.status-pending {
+  background: color-mix(in srgb, #2563eb 15%, transparent);
+  color: #2563eb;
+}
+
+.status-closed {
+  background: color-mix(in srgb, #666 15%, transparent);
+  color: #666;
 }
 
 .result-meta {

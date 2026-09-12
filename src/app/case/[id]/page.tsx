@@ -50,6 +50,13 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
         ← Back to search
       </Link>
 
+      <span
+        className={`status-badge ${
+          docket.date_terminated ? "status-closed" : "status-pending"
+        }`}
+      >
+        {docket.date_terminated ? "Closed" : "Pending"}
+      </span>
       <h1>{docket.case_name}</h1>
 
       <dl className="case-facts">
