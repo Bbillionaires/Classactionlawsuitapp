@@ -120,3 +120,121 @@ a {
   margin-top: 0.25rem;
   flex-wrap: wrap;
 }
+
+.filters-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.filters-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.filters-row input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.pagination button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  color: #666;
+  text-decoration: underline;
+}
+
+.case-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 2rem;
+  margin-top: 1.5rem;
+}
+
+.case-facts dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #666;
+}
+
+.case-facts dd {
+  margin-top: 0.15rem;
+}
+
+.external-link {
+  display: inline-block;
+  margin-top: 1.5rem;
+  text-decoration: underline;
+}
+
+.entries-heading {
+  margin-top: 2.5rem;
+}
+
+.entries {
+  list-style: none;
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.entry {
+  border-top: 1px solid #e5e5e5;
+  padding-top: 1rem;
+}
+
+.entry-header {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.entry-description {
+  margin-top: 0.35rem;
+}
+
+.entry-documents {
+  list-style: disc;
+  margin: 0.5rem 0 0 1.25rem;
+  font-size: 0.9rem;
+}
+
+.entry-documents a {
+  text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .case-facts {
+    grid-template-columns: 1fr;
+  }
+}

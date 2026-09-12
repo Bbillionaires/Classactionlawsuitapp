@@ -50,10 +50,11 @@ export interface CourtListenerDocket {
   docket_absolute_url: string;
 }
 
-export interface CourtListenerSearchResult {
+/** A search result page, with opaque cursors instead of raw CourtListener URLs. */
+export interface CourtListenerSearchPage {
   count: number;
-  next: string | null;
-  previous: string | null;
+  nextCursor: string | null;
+  previousCursor: string | null;
   results: CourtListenerDocket[];
 }
 
@@ -66,8 +67,25 @@ export interface SearchClassActionCasesParams {
   filedAfter?: string;
   /** Only cases filed on or before this date (YYYY-MM-DD). */
   filedBefore?: string;
-  /** Page cursor from a previous response's `next`/`previous` field. */
+  /** Page cursor from a previous result's `nextCursor`/`previousCursor`. */
   cursor?: string;
+}
+
+/** Pulls the opaque `cursor` query param out of a CourtListener pagination URL. */
+function extractCursor(paginationUrl: string | null): string | null {
+  if (!paginationUrl) return null;
+  try {
+    return new URL(paginationUrl).searchParams.get("cursor");
+  } catch {
+    return null;
+  }
+}
+
+interface RawSearchResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: CourtListenerDocket[];
 }
 
 /**
@@ -76,7 +94,7 @@ export interface SearchClassActionCasesParams {
  */
 export async function searchClassActionCases(
   params: SearchClassActionCasesParams,
-): Promise<CourtListenerSearchResult> {
+): Promise<CourtListenerSearchPage> {
   const { query, courtId, filedAfter, filedBefore, cursor } = params;
 
   const searchParams = new URLSearchParams({
@@ -103,5 +121,100 @@ export async function searchClassActionCases(
     );
   }
 
-  return (await response.json()) as CourtListenerSearchResult;
+  const raw = (await response.json()) as RawSearchResponse;
+  return {
+    count: raw.count,
+    nextCursor: extractCursor(raw.next),
+    previousCursor: extractCursor(raw.previous),
+    results: raw.results,
+  };
+}
+
+/** Full docket detail, as returned by `/dockets/{id}/`. */
+export interface CourtListenerDocketDetail {
+  id: number;
+  case_name: string;
+  court_id: string;
+  docket_number: string | null;
+  date_filed: string | null;
+  date_terminated: string | null;
+  date_last_filing: string | null;
+  cause: string | null;
+  nature_of_suit: string | null;
+  assigned_to_str: string | null;
+  referred_to_str: string | null;
+  jury_demand: string | null;
+  absolute_url: string;
+}
+
+export async function getDocketById(
+  docketId: string,
+): Promise<CourtListenerDocketDetail> {
+  const url = `${getBaseUrl()}/dockets/${encodeURIComponent(docketId)}/`;
+
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new CourtListenerApiError(
+      `CourtListener docket lookup failed (${response.status}): ${body || response.statusText}`,
+      response.status,
+    );
+  }
+
+  return (await response.json()) as CourtListenerDocketDetail;
+}
+
+export interface CourtListenerRecapDocument {
+  id: number;
+  description: string;
+  page_count: number | null;
+  absolute_url: string;
+  filepath_ia: string | null;
+  is_available: boolean;
+}
+
+export interface CourtListenerDocketEntry {
+  id: number;
+  date_filed: string | null;
+  entry_number: number | null;
+  description: string;
+  recap_documents: CourtListenerRecapDocument[];
+}
+
+interface RawDocketEntriesResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: CourtListenerDocketEntry[];
+}
+
+/** Docket entries (the filing history) for a docket, most recent first. */
+export async function getDocketEntries(
+  docketId: string,
+): Promise<CourtListenerDocketEntry[]> {
+  const searchParams = new URLSearchParams({
+    docket: docketId,
+    order_by: "-recap_sequence_number",
+  });
+  const url = `${getBaseUrl()}/docket-entries/?${searchParams.toString()}`;
+
+  const response = await fetch(url, {
+    headers: getAuthHeaders(),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new CourtListenerApiError(
+      `CourtListener docket entries lookup failed (${response.status}): ${body || response.statusText}`,
+      response.status,
+    );
+  }
+
+  const raw = (await response.json()) as RawDocketEntriesResponse;
+  return raw.results;
 }
