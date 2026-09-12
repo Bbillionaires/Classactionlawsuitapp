@@ -83,7 +83,7 @@ export function scoreUrl(params: {
     return {
       verificationStatus: "probable",
       confidenceScore: 35,
-      verificationSource: `found near keyword "${matchedKeyword}" in a docket filing`,
+      verificationSource: `found alongside ${matchedKeyword} in a docket filing`,
     };
   }
   return {

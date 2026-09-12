@@ -96,3 +96,34 @@ export function administratorNameForDomain(domain: string): string | null {
   );
   return known ? ADMINISTRATOR_NAMES_BY_DOMAIN[known] : null;
 }
+
+export interface AdministratorMatch {
+  domain: string;
+  name: string;
+}
+
+/**
+ * Independent detection signal, separate from SETTLEMENT_KEYWORDS: does
+ * this text name a known settlement administrator directly (its domain
+ * as bare text, e.g. "kccllc.com" with no "http://" scheme, or its
+ * display name, e.g. "Kroll Settlement Administration")?
+ *
+ * A docket entry can mention an administrator without using any of our
+ * 16 settlement keywords verbatim — this catches that case instead of
+ * only ever cross-referencing administrators against URLs that already
+ * survived the keyword gate.
+ */
+export function matchesKnownAdministrator(text: string): AdministratorMatch | null {
+  const lower = text.toLowerCase();
+  for (const domain of KNOWN_ADMINISTRATOR_DOMAINS) {
+    if (lower.includes(domain)) {
+      return { domain, name: ADMINISTRATOR_NAMES_BY_DOMAIN[domain] };
+    }
+  }
+  for (const [domain, name] of Object.entries(ADMINISTRATOR_NAMES_BY_DOMAIN)) {
+    if (lower.includes(name.toLowerCase())) {
+      return { domain, name };
+    }
+  }
+  return null;
+}

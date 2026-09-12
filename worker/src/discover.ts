@@ -4,7 +4,11 @@ import {
   fetchDocketEntries,
   fetchDocumentPlainText,
 } from "./courtlistener.js";
-import { matchesSettlementKeyword, administratorNameForDomain } from "./keywords.js";
+import {
+  matchesSettlementKeyword,
+  matchesKnownAdministrator,
+  administratorNameForDomain,
+} from "./keywords.js";
 import { extractCandidateUrls, scoreUrl } from "./extract.js";
 import { deriveStatusAndStage } from "./status.js";
 import { findMatchingSettlement, upsertSettlement, recordSource } from "./repository.js";
@@ -55,9 +59,17 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
     }
 
     for (const entry of entries) {
+      // Two independent triggers: the 16-item settlement-keyword list, and
+      // a direct mention of a known administrator (by domain or display
+      // name) — a docket entry can name an administrator without using
+      // any of our keyword phrases verbatim.
       const keyword = matchesSettlementKeyword(entry.description);
-      if (!keyword) continue;
+      const adminMatch = matchesKnownAdministrator(entry.description);
+      if (!keyword && !adminMatch) continue;
 
+      const matchLabel = keyword
+        ? `keyword "${keyword}"`
+        : `administrator "${adminMatch!.name}"`;
       const isCourtOrder = /\border\b/i.test(entry.description);
       const candidates = extractCandidateUrls(entry.description);
 
@@ -74,11 +86,12 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
       for (const candidate of candidates) {
         stats.candidatesFound += 1;
 
-        const administrator = administratorNameForDomain(candidate.domain);
+        const administrator =
+          administratorNameForDomain(candidate.domain) ?? adminMatch?.name ?? null;
         const score = scoreUrl({
           domain: candidate.domain,
           foundInCourtOrder: isCourtOrder,
-          matchedKeyword: keyword,
+          matchedKeyword: matchLabel,
         });
 
         const existing = await findMatchingSettlement(pool, docket.docket_id, {
@@ -114,7 +127,7 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
           extractedField: "settlement_website_url",
           extractedValue: candidate.url,
           courtlistenerDocketEntryId: entry.id,
-          matchedKeyword: keyword,
+          matchedKeyword: matchLabel,
           snippet: entry.description.slice(0, 500),
         });
       }
