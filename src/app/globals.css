@@ -48,10 +48,116 @@ a {
   }
 }
 
+.page-content {
+  position: relative;
+  z-index: 1;
+}
+
 .page {
   max-width: 720px;
   margin: 0 auto;
   padding: 3rem 1.5rem;
+}
+
+/* Site header + animated gavel */
+
+.site-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  padding: 1.25rem 1.5rem 0;
+}
+
+.site-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.gavel-icon {
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.gavel-icon .gavel-block,
+.gavel-icon .gavel-mallet rect {
+  fill: currentColor;
+}
+
+.gavel-icon .gavel-mallet {
+  transform-box: view-box;
+  transform-origin: 26px 43px;
+  animation: gavel-strike 2.4s ease-in-out infinite;
+}
+
+@keyframes gavel-strike {
+  0%,
+  55% {
+    transform: rotate(-25deg);
+  }
+  65% {
+    transform: rotate(3deg);
+  }
+  75% {
+    transform: rotate(-9deg);
+  }
+  85%,
+  100% {
+    transform: rotate(-25deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gavel-icon .gavel-mallet {
+    animation: none;
+    transform: rotate(-15deg);
+  }
+}
+
+/* Falling-cash background */
+
+.cash-rain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cash-bill {
+  position: absolute;
+  top: -10vh;
+  opacity: 0.5;
+  will-change: transform;
+  animation-name: cash-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes cash-fall {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.5;
+  }
+  90% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate(var(--drift), 115vh) rotate(25deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cash-rain {
+    display: none;
+  }
 }
 
 .subtitle {
