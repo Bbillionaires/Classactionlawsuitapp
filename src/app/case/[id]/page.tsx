@@ -6,6 +6,9 @@ import {
   getDocketById,
   getDocketEntries,
 } from "@/lib/courtlistener";
+import { getSettlementsForDocket } from "@/lib/settlements/repository";
+import type { Settlement } from "@/lib/settlements/types";
+import SettlementCard from "./SettlementCard";
 
 function entryDescription(entry: CourtListenerDocketEntry): string {
   if (entry.description) return entry.description;
@@ -42,6 +45,17 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
       }
     }
     throw error;
+  }
+
+  // Settlement data is a best-effort enrichment on top of CourtListener,
+  // not core to the page — a database hiccup here should never break the
+  // docket view itself.
+  let settlements: Settlement[];
+  try {
+    settlements = await getSettlementsForDocket(id);
+  } catch (error) {
+    console.error(`Failed to load settlements for docket ${id}:`, error);
+    settlements = [];
   }
 
   return (
@@ -107,6 +121,15 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
           </div>
         )}
       </dl>
+
+      {settlements.length > 0 && (
+        <section className="settlements">
+          <h2>{settlements.length > 1 ? "Settlements" : "Settlement"}</h2>
+          {settlements.map((settlement) => (
+            <SettlementCard key={settlement.id} settlement={settlement} />
+          ))}
+        </section>
+      )}
 
       <a
         className="external-link"

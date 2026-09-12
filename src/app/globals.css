@@ -151,6 +151,75 @@ a {
   color: #666;
 }
 
+.status-active {
+  background: color-mix(in srgb, #16a34a 15%, transparent);
+  color: #16a34a;
+}
+
+.settlements {
+  margin-top: 2rem;
+}
+
+.settlement-card {
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+
+.settlement-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settlement-stage {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.settlement-card .case-facts {
+  margin-top: 1rem;
+}
+
+.settlement-detail {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.settlement-dates {
+  list-style: none;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.file-claim-button {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settlement-unverified {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: #b45309;
+}
+
+.settlement-provenance {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: #999;
+}
+
 .result-meta {
   display: flex;
   gap: 1rem;
