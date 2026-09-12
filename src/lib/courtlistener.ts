@@ -58,6 +58,14 @@ export interface CourtListenerSearchPage {
   results: CourtListenerDocket[];
 }
 
+export type CourtListenerSortOrder = "relevance" | "newest" | "oldest";
+
+const ORDER_BY: Record<CourtListenerSortOrder, string | null> = {
+  relevance: null,
+  newest: "dateFiled desc",
+  oldest: "dateFiled asc",
+};
+
 export interface SearchClassActionCasesParams {
   /** Free-text search query, e.g. "data breach class action". */
   query: string;
@@ -69,6 +77,8 @@ export interface SearchClassActionCasesParams {
   filedBefore?: string;
   /** Page cursor from a previous result's `nextCursor`/`previousCursor`. */
   cursor?: string;
+  /** Result order. Defaults to CourtListener's relevance ranking. */
+  sort?: CourtListenerSortOrder;
 }
 
 /** Pulls the opaque `cursor` query param out of a CourtListener pagination URL. */
@@ -95,7 +105,7 @@ interface RawSearchResponse {
 export async function searchClassActionCases(
   params: SearchClassActionCasesParams,
 ): Promise<CourtListenerSearchPage> {
-  const { query, courtId, filedAfter, filedBefore, cursor } = params;
+  const { query, courtId, filedAfter, filedBefore, cursor, sort } = params;
 
   const searchParams = new URLSearchParams({
     type: "r",
@@ -105,6 +115,8 @@ export async function searchClassActionCases(
   if (filedAfter) searchParams.set("filed_after", filedAfter);
   if (filedBefore) searchParams.set("filed_before", filedBefore);
   if (cursor) searchParams.set("cursor", cursor);
+  const orderBy = sort ? ORDER_BY[sort] : null;
+  if (orderBy) searchParams.set("order_by", orderBy);
 
   const url = `${getBaseUrl()}/search/?${searchParams.toString()}`;
 

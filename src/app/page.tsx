@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import type { CourtListenerDocket } from "@/lib/courtlistener";
+
+const RATE_LIMIT_COOLDOWN_SECONDS = 15;
 
 interface SearchResponse {
   count: number;
@@ -11,11 +13,14 @@ interface SearchResponse {
   results: CourtListenerDocket[];
 }
 
+type SortOrder = "relevance" | "newest" | "oldest";
+
 interface Filters {
   query: string;
   court: string;
   filedAfter: string;
   filedBefore: string;
+  sort: SortOrder;
 }
 
 const EMPTY_FILTERS: Filters = {
@@ -23,6 +28,7 @@ const EMPTY_FILTERS: Filters = {
   court: "",
   filedAfter: "",
   filedBefore: "",
+  sort: "relevance",
 };
 
 export default function Home() {
@@ -35,6 +41,13 @@ export default function Home() {
   // Cursor history lets "Previous" step back without CourtListener's own
   // previous-page cursor (which points at a different page than "no cursor").
   const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   async function runSearch(cursor: string | null) {
     setStatus("loading");
@@ -45,6 +58,7 @@ export default function Home() {
     if (filters.filedAfter) params.set("filed_after", filters.filedAfter);
     if (filters.filedBefore) params.set("filed_before", filters.filedBefore);
     if (cursor) params.set("cursor", cursor);
+    if (filters.sort !== "relevance") params.set("sort", filters.sort);
 
     const res = await fetch(`/api/courtlistener/search?${params.toString()}`);
     const body = await res.json();
@@ -53,6 +67,7 @@ export default function Home() {
       setStatus("error");
       setError(body.error ?? "Search failed.");
       setData(null);
+      if (res.status === 429) setCooldown(RATE_LIMIT_COOLDOWN_SECONDS);
       return;
     }
 
@@ -62,18 +77,19 @@ export default function Home() {
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (status === "loading" || cooldown > 0) return;
     setCursorStack([null]);
     void runSearch(null);
   }
 
   function goNext() {
-    if (!data?.nextCursor) return;
+    if (!data?.nextCursor || status === "loading" || cooldown > 0) return;
     setCursorStack((stack) => [...stack, data.nextCursor]);
     void runSearch(data.nextCursor);
   }
 
   function goPrevious() {
-    if (cursorStack.length <= 1) return;
+    if (cursorStack.length <= 1 || status === "loading" || cooldown > 0) return;
     const stack = cursorStack.slice(0, -1);
     setCursorStack(stack);
     void runSearch(stack[stack.length - 1]);
@@ -82,6 +98,7 @@ export default function Home() {
   const canGoPrevious = cursorStack.length > 1;
   const canGoNext = Boolean(data?.nextCursor);
   const isLoading = status === "loading";
+  const isBlocked = isLoading || cooldown > 0;
 
   return (
     <main className="page">
@@ -100,8 +117,12 @@ export default function Home() {
           placeholder="e.g. data breach, defective product, wage and hour"
           aria-label="Search class action cases"
         />
-        <button type="submit" disabled={status === "loading"}>
-          {status === "loading" ? "Searching…" : "Search"}
+        <button type="submit" disabled={isBlocked}>
+          {isLoading
+            ? "Searching…"
+            : cooldown > 0
+              ? `Wait ${cooldown}s…`
+              : "Search"}
         </button>
       </form>
 
@@ -137,6 +158,19 @@ export default function Home() {
             }
           />
         </label>
+        <label>
+          Sort by
+          <select
+            value={filters.sort}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, sort: e.target.value as SortOrder }))
+            }
+          >
+            <option value="relevance">Relevance</option>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </label>
       </div>
 
       {status === "error" && <p className="error">{error}</p>}
@@ -168,14 +202,14 @@ export default function Home() {
               <button
                 type="button"
                 onClick={goPrevious}
-                disabled={!canGoPrevious || isLoading}
+                disabled={!canGoPrevious || isBlocked}
               >
                 ← Previous
               </button>
               <button
                 type="button"
                 onClick={goNext}
-                disabled={!canGoNext || isLoading}
+                disabled={!canGoNext || isBlocked}
               >
                 Next →
               </button>
