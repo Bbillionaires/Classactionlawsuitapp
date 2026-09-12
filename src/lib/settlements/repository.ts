@@ -13,3 +13,21 @@ export async function getSettlementsForDocket(
     [Number(docketId)],
   );
 }
+
+/**
+ * Minimal display info for a set of settlement ids — used by the member
+ * account page to show what each of a member's claim requests is about
+ * (case name, and the docket id to link back to /case/[id]) without
+ * duplicating settlement data into the members schema.
+ */
+export async function getSettlementsByIds(
+  ids: number[],
+): Promise<Pick<Settlement, "id" | "case_name" | "courtlistener_docket_id" | "status">[]> {
+  if (ids.length === 0) return [];
+  return querySettlements(
+    `SELECT id, case_name, courtlistener_docket_id, status
+     FROM settlements
+     WHERE id = ANY($1::bigint[])`,
+    [ids],
+  );
+}

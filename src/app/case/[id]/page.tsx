@@ -8,6 +8,12 @@ import {
 } from "@/lib/courtlistener";
 import { getSettlementsForDocket } from "@/lib/settlements/repository";
 import type { Settlement } from "@/lib/settlements/types";
+import { getCurrentMemberId } from "@/lib/members/auth";
+import {
+  getClaimRequest,
+  getLatestAuthorization,
+} from "@/lib/members/repository";
+import type { ClaimRequestStatus } from "@/lib/members/types";
 import SettlementCard from "./SettlementCard";
 
 function entryDescription(entry: CourtListenerDocketEntry): string {
@@ -56,6 +62,27 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
   } catch (error) {
     console.error(`Failed to load settlements for docket ${id}:`, error);
     settlements = [];
+  }
+
+  // Member/claim-filing state is likewise best-effort: a signed-out
+  // visitor or a database hiccup here should still see the case page.
+  let memberId: number | null = null;
+  let hasAuthorized = false;
+  const claimRequestStatusBySettlement = new Map<number, ClaimRequestStatus>();
+  try {
+    memberId = await getCurrentMemberId();
+    if (memberId) {
+      const authorization = await getLatestAuthorization(memberId);
+      hasAuthorized = authorization !== null;
+      for (const settlement of settlements) {
+        const claimRequest = await getClaimRequest(memberId, settlement.id);
+        if (claimRequest) {
+          claimRequestStatusBySettlement.set(settlement.id, claimRequest.status);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to load member claim state for docket ${id}:`, error);
   }
 
   return (
@@ -126,7 +153,16 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
         <section className="settlements">
           <h2>{settlements.length > 1 ? "Settlements" : "Settlement"}</h2>
           {settlements.map((settlement) => (
-            <SettlementCard key={settlement.id} settlement={settlement} />
+            <SettlementCard
+              key={settlement.id}
+              settlement={settlement}
+              currentPath={`/case/${id}`}
+              isSignedIn={memberId !== null}
+              hasAuthorized={hasAuthorized}
+              claimRequestStatus={
+                claimRequestStatusBySettlement.get(settlement.id) ?? null
+              }
+            />
           ))}
         </section>
       )}

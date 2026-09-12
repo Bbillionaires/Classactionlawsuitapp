@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { getCurrentMemberId } from "@/lib/members/auth";
 
 /**
  * Hand-built SVG rather than a generated image: it stays crisp at any
  * size, themes with currentColor, and the striking motion is just a CSS
  * rotation on the mallet group — no sprite/video asset needed.
  */
-export default function SiteHeader() {
+export default async function SiteHeader() {
+  const memberId = await getCurrentMemberId();
+
   return (
     <header className="site-header">
       <Link href="/" className="site-brand">
@@ -31,6 +34,16 @@ export default function SiteHeader() {
         </svg>
         <span className="site-brand-name">ClassActionPayouts.com</span>
       </Link>
+      <nav className="site-nav">
+        {memberId ? (
+          <Link href="/account">My account</Link>
+        ) : (
+          <>
+            <Link href="/login">Log in</Link>
+            <Link href="/signup">Sign up</Link>
+          </>
+        )}
+      </nav>
     </header>
   );
 }

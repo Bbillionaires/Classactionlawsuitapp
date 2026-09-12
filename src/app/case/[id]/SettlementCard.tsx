@@ -1,4 +1,6 @@
 import type { Settlement } from "@/lib/settlements/types";
+import type { ClaimRequestStatus } from "@/lib/members/types";
+import ClaimFilingCTA from "../../components/ClaimFilingCTA";
 
 const STAGE_LABELS: Record<Settlement["stage"], string> = {
   pending: "Settlement proposed",
@@ -20,10 +22,19 @@ function formatDate(value: string | null): string | null {
 
 export default function SettlementCard({
   settlement,
+  currentPath,
+  isSignedIn,
+  hasAuthorized,
+  claimRequestStatus,
 }: {
   settlement: Settlement;
+  currentPath: string;
+  isSignedIn: boolean;
+  hasAuthorized: boolean;
+  claimRequestStatus: ClaimRequestStatus | null;
 }) {
   const {
+    id,
     status,
     stage,
     settlement_administrator,
@@ -120,6 +131,16 @@ export default function SettlementCard({
             before submitting any personal information)</em>
           </p>
         ))}
+
+      {status === "active" && (
+        <ClaimFilingCTA
+          settlementId={id}
+          currentPath={currentPath}
+          isSignedIn={isSignedIn}
+          hasAuthorized={hasAuthorized}
+          initialStatus={claimRequestStatus}
+        />
+      )}
 
       <p className="settlement-provenance">
         {verification_source}
