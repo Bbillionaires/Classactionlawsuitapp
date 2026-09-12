@@ -20,6 +20,7 @@ interface Filters {
   court: string;
   filedAfter: string;
   filedBefore: string;
+  cause: string;
   sort: SortOrder;
 }
 
@@ -28,6 +29,7 @@ const EMPTY_FILTERS: Filters = {
   court: "",
   filedAfter: "",
   filedBefore: "",
+  cause: "",
   sort: "relevance",
 };
 
@@ -57,6 +59,7 @@ export default function Home() {
     if (filters.court) params.set("court", filters.court);
     if (filters.filedAfter) params.set("filed_after", filters.filedAfter);
     if (filters.filedBefore) params.set("filed_before", filters.filedBefore);
+    if (filters.cause) params.set("cause", filters.cause);
     if (cursor) params.set("cursor", cursor);
     if (filters.sort !== "relevance") params.set("sort", filters.sort);
 
@@ -139,6 +142,17 @@ export default function Home() {
           />
         </label>
         <label>
+          Cause of action
+          <input
+            type="text"
+            value={filters.cause}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, cause: e.target.value }))
+            }
+            placeholder="e.g. Class Action Fairness Act, TCPA"
+          />
+        </label>
+        <label>
           Filed after
           <input
             type="date"
@@ -192,6 +206,7 @@ export default function Home() {
                     <span>No. {docket.docketNumber}</span>
                   )}
                   {docket.dateFiled && <span>Filed {docket.dateFiled}</span>}
+                  {docket.cause && <span>{docket.cause}</span>}
                 </div>
               </li>
             ))}

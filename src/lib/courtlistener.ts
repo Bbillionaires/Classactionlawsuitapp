@@ -75,6 +75,8 @@ export interface SearchClassActionCasesParams {
   filedAfter?: string;
   /** Only cases filed on or before this date (YYYY-MM-DD). */
   filedBefore?: string;
+  /** Free-text match against the docket's cause of action, e.g. "Class Action Fairness Act" or "42 U.S.C. 1983". */
+  cause?: string;
   /** Page cursor from a previous result's `nextCursor`/`previousCursor`. */
   cursor?: string;
   /** Result order. Defaults to CourtListener's relevance ranking. */
@@ -105,7 +107,8 @@ interface RawSearchResponse {
 export async function searchClassActionCases(
   params: SearchClassActionCasesParams,
 ): Promise<CourtListenerSearchPage> {
-  const { query, courtId, filedAfter, filedBefore, cursor, sort } = params;
+  const { query, courtId, filedAfter, filedBefore, cause, cursor, sort } =
+    params;
 
   const searchParams = new URLSearchParams({
     type: "r",
@@ -114,6 +117,7 @@ export async function searchClassActionCases(
   if (courtId) searchParams.set("court", courtId);
   if (filedAfter) searchParams.set("filed_after", filedAfter);
   if (filedBefore) searchParams.set("filed_before", filedBefore);
+  if (cause) searchParams.set("cause", cause);
   if (cursor) searchParams.set("cursor", cursor);
   const orderBy = sort ? ORDER_BY[sort] : null;
   if (orderBy) searchParams.set("order_by", orderBy);

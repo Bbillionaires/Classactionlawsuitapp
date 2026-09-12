@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   const courtId = params.get("court")?.trim() || undefined;
   const filedAfter = params.get("filed_after")?.trim() || undefined;
   const filedBefore = params.get("filed_before")?.trim() || undefined;
+  const cause = params.get("cause")?.trim() || undefined;
   const cursor = params.get("cursor")?.trim() || undefined;
   const sort = parseSort(params.get("sort"));
 
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
       courtId,
       filedAfter,
       filedBefore,
+      cause,
       cursor,
       sort,
     });
