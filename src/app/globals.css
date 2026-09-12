@@ -241,3 +241,47 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+.skeleton {
+  display: block;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--foreground) 10%, transparent) 25%,
+    color-mix(in srgb, var(--foreground) 16%, transparent) 37%,
+    color-mix(in srgb, var(--foreground) 10%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+.skeleton-text {
+  height: 0.9rem;
+}
+
+.skeleton-title {
+  height: 2rem;
+  width: 60%;
+  margin-top: 1rem;
+}
+
+.skeleton-heading {
+  height: 1.4rem;
+  width: 12rem;
+  margin-top: 2.5rem;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
