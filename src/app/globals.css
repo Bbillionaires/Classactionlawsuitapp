@@ -132,6 +132,17 @@ a {
   flex-wrap: wrap;
 }
 
+.filters-details {
+  margin-top: 1rem;
+}
+
+.filters-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #666;
+  user-select: none;
+}
+
 .filters-row {
   display: flex;
   gap: 1.5rem;

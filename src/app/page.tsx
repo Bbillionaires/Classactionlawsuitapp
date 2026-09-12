@@ -31,7 +31,7 @@ const EMPTY_FILTERS: Filters = {
   filedAfter: "",
   filedBefore: "",
   cause: "",
-  sort: "relevance",
+  sort: "newest",
 };
 
 function describeFilters(filters: Filters): string {
@@ -40,7 +40,7 @@ function describeFilters(filters: Filters): string {
   if (filters.cause) parts.push(`cause: ${filters.cause}`);
   if (filters.filedAfter) parts.push(`filed after ${filters.filedAfter}`);
   if (filters.filedBefore) parts.push(`filed before ${filters.filedBefore}`);
-  if (filters.sort !== "relevance") parts.push(`sort: ${filters.sort}`);
+  if (filters.sort !== "newest") parts.push(`sort: ${filters.sort}`);
   return parts.join(" · ");
 }
 
@@ -68,6 +68,13 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
+  // Show a feed of recent lawsuits immediately, before the user searches
+  // for anything — an empty search form with no results is a bad first look.
+  useEffect(() => {
+    void runSearch(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Accepts an explicit filters override so running a saved search doesn't
   // race React's async state update to `filters`.
   async function runSearch(cursor: string | null, overrideFilters?: Filters) {
@@ -83,8 +90,7 @@ export default function Home() {
       params.set("filed_before", activeFilters.filedBefore);
     if (activeFilters.cause) params.set("cause", activeFilters.cause);
     if (cursor) params.set("cursor", cursor);
-    if (activeFilters.sort !== "relevance")
-      params.set("sort", activeFilters.sort);
+    params.set("sort", activeFilters.sort);
 
     const res = await fetch(`/api/courtlistener/search?${params.toString()}`);
     const body = await res.json();
@@ -143,9 +149,10 @@ export default function Home() {
 
   return (
     <main className="page">
-      <h1>Class Action Lawsuit Research</h1>
+      <h1>Class Action Lawsuits</h1>
       <p className="subtitle">
-        Search U.S. federal class action dockets via the CourtListener API.
+        Browse newly filed U.S. federal class action lawsuits, or search for
+        a specific case.
       </p>
 
       <form onSubmit={handleSubmit} className="search-form">
@@ -155,8 +162,8 @@ export default function Home() {
           onChange={(e) =>
             setFilters((f) => ({ ...f, query: e.target.value }))
           }
-          placeholder="e.g. data breach, defective product, wage and hour"
-          aria-label="Search class action cases"
+          placeholder="Search by company, product, or topic (optional)"
+          aria-label="Search class action lawsuits"
         />
         <button type="submit" disabled={isBlocked}>
           {isLoading
@@ -167,63 +174,69 @@ export default function Home() {
         </button>
       </form>
 
-      <div className="filters-row">
-        <label>
-          Court ID
-          <input
-            type="text"
-            value={filters.court}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, court: e.target.value }))
-            }
-            placeholder="e.g. cand, nysd"
-          />
-        </label>
-        <label>
-          Cause of action
-          <input
-            type="text"
-            value={filters.cause}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, cause: e.target.value }))
-            }
-            placeholder="e.g. Class Action Fairness Act, TCPA"
-          />
-        </label>
-        <label>
-          Filed after
-          <input
-            type="date"
-            value={filters.filedAfter}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, filedAfter: e.target.value }))
-            }
-          />
-        </label>
-        <label>
-          Filed before
-          <input
-            type="date"
-            value={filters.filedBefore}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, filedBefore: e.target.value }))
-            }
-          />
-        </label>
-        <label>
-          Sort by
-          <select
-            value={filters.sort}
-            onChange={(e) =>
-              setFilters((f) => ({ ...f, sort: e.target.value as SortOrder }))
-            }
-          >
-            <option value="relevance">Relevance</option>
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-          </select>
-        </label>
-      </div>
+      <details className="filters-details">
+        <summary>More filters</summary>
+        <div className="filters-row">
+          <label>
+            Court ID
+            <input
+              type="text"
+              value={filters.court}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, court: e.target.value }))
+              }
+              placeholder="e.g. cand, nysd"
+            />
+          </label>
+          <label>
+            Cause of action
+            <input
+              type="text"
+              value={filters.cause}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, cause: e.target.value }))
+              }
+              placeholder="e.g. Class Action Fairness Act, TCPA"
+            />
+          </label>
+          <label>
+            Filed after
+            <input
+              type="date"
+              value={filters.filedAfter}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, filedAfter: e.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Filed before
+            <input
+              type="date"
+              value={filters.filedBefore}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, filedBefore: e.target.value }))
+              }
+            />
+          </label>
+          <label>
+            Sort by
+            <select
+              value={filters.sort}
+              onChange={(e) =>
+                setFilters((f) => ({
+                  ...f,
+                  sort: e.target.value as SortOrder,
+                }))
+              }
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="relevance">Relevance</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
       <div className="saved-searches">
         <form onSubmit={handleSaveSearch} className="save-search-form">
@@ -267,10 +280,17 @@ export default function Home() {
 
       {status === "error" && <p className="error">{error}</p>}
 
-      {status === "done" && data && (
+      {(status === "idle" || (status === "loading" && !data)) && (
+        <p className="result-count">Loading recent lawsuits…</p>
+      )}
+
+      {data && (
         <section>
           <p className="result-count">
-            {data.count.toLocaleString()} matching dockets
+            {filters.query
+              ? `${data.count.toLocaleString()} lawsuits matching "${filters.query}"`
+              : "Most recently filed lawsuits"}
+            {status === "loading" && " (updating…)"}
           </p>
           <ul className="results">
             {data.results.map((docket) => (
