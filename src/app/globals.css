@@ -157,6 +157,84 @@ a {
   color: var(--foreground);
 }
 
+.saved-searches {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e5e5;
+}
+
+.save-search-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.save-search-form input {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.save-search-form button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.save-search-form button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.saved-searches-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.saved-search {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.saved-search button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.saved-search > button:first-child {
+  padding: 0.3rem 0.4rem 0.3rem 0.8rem;
+}
+
+.saved-search > button:first-child:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.saved-search-delete {
+  padding: 0.3rem 0.7rem 0.3rem 0.3rem;
+  color: #999;
+}
+
+.saved-search-delete:hover {
+  color: #b91c1c;
+}
+
 .pagination {
   display: flex;
   justify-content: space-between;

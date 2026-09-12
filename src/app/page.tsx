@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import type { CourtListenerDocket } from "@/lib/courtlistener";
+import { useSavedSearches, type SavedSearch } from "@/lib/savedSearches";
 
 const RATE_LIMIT_COOLDOWN_SECONDS = 15;
 
@@ -33,6 +34,16 @@ const EMPTY_FILTERS: Filters = {
   sort: "relevance",
 };
 
+function describeFilters(filters: Filters): string {
+  const parts = [filters.query || "(any keyword)"];
+  if (filters.court) parts.push(`court: ${filters.court}`);
+  if (filters.cause) parts.push(`cause: ${filters.cause}`);
+  if (filters.filedAfter) parts.push(`filed after ${filters.filedAfter}`);
+  if (filters.filedBefore) parts.push(`filed before ${filters.filedBefore}`);
+  if (filters.sort !== "relevance") parts.push(`sort: ${filters.sort}`);
+  return parts.join(" · ");
+}
+
 export default function Home() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [status, setStatus] = useState<"idle" | "loading" | "error" | "done">(
@@ -44,6 +55,12 @@ export default function Home() {
   // previous-page cursor (which points at a different page than "no cursor").
   const [cursorStack, setCursorStack] = useState<(string | null)[]>([null]);
   const [cooldown, setCooldown] = useState(0);
+  const [saveName, setSaveName] = useState("");
+  const {
+    savedSearches,
+    save: saveSearch,
+    remove: removeSavedSearch,
+  } = useSavedSearches<Filters>();
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -51,17 +68,23 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  async function runSearch(cursor: string | null) {
+  // Accepts an explicit filters override so running a saved search doesn't
+  // race React's async state update to `filters`.
+  async function runSearch(cursor: string | null, overrideFilters?: Filters) {
+    const activeFilters = overrideFilters ?? filters;
     setStatus("loading");
     setError(null);
 
-    const params = new URLSearchParams({ q: filters.query });
-    if (filters.court) params.set("court", filters.court);
-    if (filters.filedAfter) params.set("filed_after", filters.filedAfter);
-    if (filters.filedBefore) params.set("filed_before", filters.filedBefore);
-    if (filters.cause) params.set("cause", filters.cause);
+    const params = new URLSearchParams({ q: activeFilters.query });
+    if (activeFilters.court) params.set("court", activeFilters.court);
+    if (activeFilters.filedAfter)
+      params.set("filed_after", activeFilters.filedAfter);
+    if (activeFilters.filedBefore)
+      params.set("filed_before", activeFilters.filedBefore);
+    if (activeFilters.cause) params.set("cause", activeFilters.cause);
     if (cursor) params.set("cursor", cursor);
-    if (filters.sort !== "relevance") params.set("sort", filters.sort);
+    if (activeFilters.sort !== "relevance")
+      params.set("sort", activeFilters.sort);
 
     const res = await fetch(`/api/courtlistener/search?${params.toString()}`);
     const body = await res.json();
@@ -96,6 +119,21 @@ export default function Home() {
     const stack = cursorStack.slice(0, -1);
     setCursorStack(stack);
     void runSearch(stack[stack.length - 1]);
+  }
+
+  function handleSaveSearch(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const name = saveName.trim();
+    if (!name) return;
+    saveSearch(name, filters);
+    setSaveName("");
+  }
+
+  function runSavedSearch(saved: SavedSearch<Filters>) {
+    if (status === "loading" || cooldown > 0) return;
+    setFilters(saved.filters);
+    setCursorStack([null]);
+    void runSearch(null, saved.filters);
   }
 
   const canGoPrevious = cursorStack.length > 1;
@@ -185,6 +223,46 @@ export default function Home() {
             <option value="oldest">Oldest first</option>
           </select>
         </label>
+      </div>
+
+      <div className="saved-searches">
+        <form onSubmit={handleSaveSearch} className="save-search-form">
+          <input
+            type="text"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            placeholder="Name this search to save it"
+            aria-label="Name this search"
+          />
+          <button type="submit" disabled={!saveName.trim()}>
+            Save search
+          </button>
+        </form>
+
+        {savedSearches.length > 0 && (
+          <ul className="saved-searches-list">
+            {savedSearches.map((saved) => (
+              <li key={saved.id} className="saved-search">
+                <button
+                  type="button"
+                  onClick={() => runSavedSearch(saved)}
+                  disabled={isBlocked}
+                  title={describeFilters(saved.filters)}
+                >
+                  {saved.name}
+                </button>
+                <button
+                  type="button"
+                  className="saved-search-delete"
+                  onClick={() => removeSavedSearch(saved.id)}
+                  aria-label={`Delete saved search "${saved.name}"`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {status === "error" && <p className="error">{error}</p>}
