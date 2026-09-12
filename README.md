@@ -7,13 +7,20 @@ displaying U.S. federal class action case data via the
 ## Architecture
 
 - `src/lib/courtlistener.ts` — server-only CourtListener API client
-  (`searchClassActionCases`). Reads the API token from the environment and is
-  never imported from client components.
+  (`searchClassActionCases`, `getDocketById`, `getDocketEntries`). Reads the
+  API token from the environment and is never imported from client
+  components. Search pagination cursors are extracted from CourtListener's
+  `next`/`previous` URLs so only an opaque cursor string is ever exposed
+  outside this module.
 - `src/app/api/courtlistener/search/route.ts` — Route Handler that proxies
   search requests to CourtListener. This is the only place the API token is
   used at request time; the browser never sees it.
-- `src/app/page.tsx` — client-side search UI that calls the route handler
-  above and renders matching federal dockets.
+- `src/app/page.tsx` — client-side search UI (query, court, and filed-date
+  filters, plus cursor-based pagination) that calls the route handler above.
+- `src/app/case/[id]/page.tsx` — server-rendered case detail page: docket
+  facts (court, cause, nature of suit, assigned judge, etc.) and the full
+  docket entry / filing history, calling the CourtListener client directly
+  since it never needs to run in the browser.
 
 ## Setup
 
@@ -46,17 +53,22 @@ With the dev server running:
 curl "http://localhost:3000/api/courtlistener/search?q=data+breach"
 ```
 
-A successful response returns JSON with `count`, `next`, and `results`
-(an array of matching federal dockets). A `500` with a config error means
-`COURTLISTENER_API_TOKEN` isn't set; a `502` means CourtListener rejected or
-failed the request.
+A successful response returns JSON with `count`, `nextCursor`,
+`previousCursor`, and `results` (an array of matching federal dockets). A
+`500` with a config error means `COURTLISTENER_API_TOKEN` isn't set; a `502`
+means CourtListener rejected or failed the request.
+
+Visiting `/case/<docket_id>` (e.g. `/case/72031934`) renders that docket's
+detail page directly from the CourtListener client.
 
 ## Notes
 
 - Search currently targets CourtListener's RECAP federal docket index
   (`type=r`), which is where class action lawsuits filed in federal court
   live. `searchClassActionCases` also accepts `courtId`, `filedAfter`,
-  `filedBefore`, and pagination `cursor` for narrowing results.
-- This is an early foundation: API integration and a basic search UI. Case
-  detail views, saved searches, filtering by cause of action, and other
-  product features are not built yet.
+  `filedBefore`, and a pagination `cursor` for narrowing results.
+- CourtListener rate-limits unauthenticated-tier tokens fairly aggressively;
+  the case detail page shows a friendly message on `429` instead of
+  crashing.
+- This is still an early foundation. Saved searches, filtering by cause of
+  action, and other product features are not built yet.
