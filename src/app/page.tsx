@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import type { CourtListenerDocket } from "@/lib/courtlistener";
 import { useSavedSearches, type SavedSearch } from "@/lib/savedSearches";
+import OpenClaimsSection from "./components/OpenClaimsSection";
 
 const RATE_LIMIT_COOLDOWN_SECONDS = 15;
 
@@ -149,10 +150,13 @@ export default function Home() {
 
   return (
     <main className="page">
-      <h1>Class Action Lawsuits</h1>
+      <OpenClaimsSection />
+
+      <h1>All Class Action Lawsuits</h1>
       <p className="subtitle">
         Browse newly filed U.S. federal class action lawsuits, or search for
-        a specific case.
+        a specific case. Most of these are still pending — see the Open
+        Claims section above for settlements you can file on now.
       </p>
 
       <form onSubmit={handleSubmit} className="search-form">

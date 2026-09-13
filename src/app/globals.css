@@ -53,6 +53,105 @@ a {
   z-index: 1;
 }
 
+/* Open-claims news ticker */
+
+.ticker {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  background: #171717;
+  color: #fff;
+  margin-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, #fff 15%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #fff 15%, transparent);
+}
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 40s linear infinite;
+}
+
+.ticker-track-static {
+  animation: none;
+}
+
+.ticker-set {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.ticker-item {
+  display: inline-block;
+  white-space: nowrap;
+  padding: 0.5rem 2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.ticker-empty {
+  font-weight: 400;
+  color: #ccc;
+}
+
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+
+/* Open claims section */
+
+.open-claims {
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.open-claims-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.filter-chip {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filter-chip-active {
+  background: #171717;
+  color: #fff;
+  border-color: #171717;
+}
+
+.open-claims-list {
+  margin-top: 1.25rem;
+}
+
+.open-claim-card {
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
 .page {
   max-width: 720px;
   margin: 0 auto;
