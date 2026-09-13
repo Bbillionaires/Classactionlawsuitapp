@@ -72,10 +72,6 @@ a {
   animation: ticker-scroll 40s linear infinite;
 }
 
-.ticker-track-static {
-  animation: none;
-}
-
 .ticker-set {
   display: flex;
   flex-shrink: 0;
@@ -88,11 +84,6 @@ a {
   font-size: 0.85rem;
   font-weight: 600;
   color: #fff;
-}
-
-.ticker-empty {
-  font-weight: 400;
-  color: #ccc;
 }
 
 @keyframes ticker-scroll {

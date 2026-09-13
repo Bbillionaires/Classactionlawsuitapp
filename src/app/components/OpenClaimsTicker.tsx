@@ -2,6 +2,45 @@ import Link from "next/link";
 import { listOpenSettlements } from "@/lib/settlements/repository";
 import type { Settlement } from "@/lib/settlements/types";
 
+const PROMO_MESSAGES = [
+  "Claim your class action lawsuit now",
+  "Want to start a class action lawsuit?",
+  "Join ClassActionPayouts.com now to claim your payout",
+  "Would you like help claiming your class action payout?",
+];
+// Non-breaking spaces: plain spaces collapse to one in HTML, and this
+// needs to visibly show several between each message, per spec.
+const PROMO_SEPARATOR = "     $     ";
+
+/**
+ * Shown in place of the open-claims list when there are none yet — still
+ * scrolls like the rest of the ticker, just with promotional copy
+ * instead of real settlements, so the strip is never a dead static bar.
+ */
+function PromoTicker() {
+  const set = (
+    <span className="ticker-item ticker-promo">
+      {PROMO_MESSAGES.map((message, i) => (
+        <span key={i}>
+          <Link href="/signup">{message}</Link>
+          {PROMO_SEPARATOR}
+        </span>
+      ))}
+    </span>
+  );
+
+  return (
+    <div className="ticker">
+      <div className="ticker-track">
+        <div className="ticker-set">{set}</div>
+        <div className="ticker-set" aria-hidden="true">
+          {set}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * A news-ticker-style strip of open (status: "active") settlements,
  * shown on every page between the header and the page content. Pure CSS
@@ -18,16 +57,7 @@ export default async function OpenClaimsTicker() {
   }
 
   if (settlements.length === 0) {
-    return (
-      <div className="ticker">
-        <div className="ticker-track ticker-track-static">
-          <span className="ticker-item ticker-empty">
-            No open claims discovered yet — new settlements are found
-            automatically as they&apos;re filed. Check back soon.
-          </span>
-        </div>
-      </div>
-    );
+    return <PromoTicker />;
   }
 
   const items = settlements.map((s) => (
