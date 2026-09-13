@@ -47,14 +47,37 @@ interface RawSearchResponse {
   results: RecapDocket[];
 }
 
-/** The newest N federal class-action dockets, for the worker's watchlist. */
-export async function fetchNewestClassActionDockets(
+/**
+ * Dockets likely to actually be near a settlement, for the worker's
+ * watchlist.
+ *
+ * This deliberately does NOT sort by newest-filed: a docket's dateFiled
+ * is when the *case* was opened, and settlements typically emerge months
+ * or years later. Sorting by dateFiled desc only ever samples brand-new
+ * filings, which structurally can't have a settlement yet — that was
+ * this worker's original (wrong) strategy, and it explains why weeks of
+ * runs never turned up a single candidate. Instead this searches RECAP's
+ * full text for class-action dockets whose own docket/entry text already
+ * mentions settlement language, so relevance ranking naturally surfaces
+ * cases actually at that stage regardless of filing date.
+ */
+export async function fetchLikelySettlementDockets(
   limit: number,
 ): Promise<RecapDocket[]> {
+  const settlementQuery = [
+    "preliminary approval",
+    "final approval",
+    "settlement administrator",
+    "claims administrator",
+    "notice of settlement",
+    "class action settlement",
+  ]
+    .map((phrase) => `"${phrase}"`)
+    .join(" OR ");
+
   const params = new URLSearchParams({
     type: "r",
-    q: "class action",
-    order_by: "dateFiled desc",
+    q: `"class action" AND (${settlementQuery})`,
   });
   const response = await throttledFetch(
     `${BASE_URL}/search/?${params.toString()}`,

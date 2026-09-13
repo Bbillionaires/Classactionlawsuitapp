@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import {
-  fetchNewestClassActionDockets,
+  fetchLikelySettlementDockets,
   fetchDocketEntries,
   fetchDocumentPlainText,
 } from "./courtlistener.js";
@@ -24,8 +24,9 @@ export interface RunStats {
 }
 
 /**
- * One discovery pass: pulls the newest class-action dockets, scans their
- * entries for settlement-related keywords, extracts and scores any URLs
+ * One discovery pass: pulls class-action dockets whose RECAP text already
+ * suggests they're near settlement, scans their entries for settlement-
+ * related keywords, extracts and scores any URLs
  * found (in the entry text itself, or — budget permitting — in an
  * attached document's text), and upserts what it finds.
  *
@@ -41,7 +42,7 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
     settlementsUpdated: 0,
   };
 
-  const dockets = await fetchNewestClassActionDockets(DOCKETS_PER_RUN);
+  const dockets = await fetchLikelySettlementDockets(DOCKETS_PER_RUN);
   let documentsFetched = 0;
 
   for (const docket of dockets) {

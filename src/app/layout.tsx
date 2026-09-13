@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import SiteHeader from "./components/SiteHeader";
 import CashRain from "./components/CashRain";
+import OpenClaimsTicker from "./components/OpenClaimsTicker";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body>
         <CashRain />
         <SiteHeader />
+        <OpenClaimsTicker />
         <div className="page-content">{children}</div>
       </body>
     </html>
