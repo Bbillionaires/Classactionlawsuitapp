@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import SiteHeader from "./components/SiteHeader";
+import CashRain from "./components/CashRain";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Class Action Lawsuit Research",
+  title: "ClassActionPayouts.com — Class Action Lawsuit Research",
   description:
     "Search U.S. federal class action case data via the CourtListener API.",
 };
@@ -21,7 +23,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <CashRain />
+        <SiteHeader />
+        <div className="page-content">{children}</div>
+      </body>
     </html>
   );
 }

@@ -48,10 +48,129 @@ a {
   }
 }
 
+.page-content {
+  position: relative;
+  z-index: 1;
+}
+
 .page {
   max-width: 720px;
   margin: 0 auto;
   padding: 3rem 1.5rem;
+}
+
+/* Site header + animated gavel */
+
+.site-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.25rem 1.5rem 0;
+}
+
+.site-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.site-nav {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.site-nav a {
+  text-decoration: underline;
+}
+
+.gavel-icon {
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.gavel-icon .gavel-block,
+.gavel-icon .gavel-mallet rect {
+  fill: currentColor;
+}
+
+.gavel-icon .gavel-mallet {
+  transform-box: view-box;
+  transform-origin: 26px 43px;
+  animation: gavel-strike 2.4s ease-in-out infinite;
+}
+
+@keyframes gavel-strike {
+  0%,
+  55% {
+    transform: rotate(-25deg);
+  }
+  65% {
+    transform: rotate(3deg);
+  }
+  75% {
+    transform: rotate(-9deg);
+  }
+  85%,
+  100% {
+    transform: rotate(-25deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gavel-icon .gavel-mallet {
+    animation: none;
+    transform: rotate(-15deg);
+  }
+}
+
+/* Falling-cash background */
+
+.cash-rain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cash-bill {
+  position: absolute;
+  top: -10vh;
+  opacity: 0.5;
+  will-change: transform;
+  animation-name: cash-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes cash-fall {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.5;
+  }
+  90% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate(var(--drift), 115vh) rotate(25deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cash-rain {
+    display: none;
+  }
 }
 
 .subtitle {
@@ -149,6 +268,237 @@ a {
 .status-closed {
   background: color-mix(in srgb, #666 15%, transparent);
   color: #666;
+}
+
+.status-active {
+  background: color-mix(in srgb, #16a34a 15%, transparent);
+  color: #16a34a;
+}
+
+.settlements {
+  margin-top: 2rem;
+}
+
+.settlement-card {
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+
+.settlement-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settlement-stage {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.settlement-card .case-facts {
+  margin-top: 1rem;
+}
+
+.settlement-detail {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.settlement-dates {
+  list-style: none;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.file-claim-button {
+  display: inline-block;
+  margin-top: 1rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settlement-unverified {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: #b45309;
+}
+
+.settlement-provenance {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: #999;
+}
+
+/* Auth / account / claim-filing */
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  max-width: 360px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.auth-form input[type="email"],
+.auth-form input[type="password"],
+.auth-form input[type="text"] {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 1rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.auth-form button {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  background: #171717;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.auth-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-switch {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.authorization-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+
+.authorization-text {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-top: 1.5rem;
+  max-width: 640px;
+}
+
+.authorization-signed {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.logout-button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.account-section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e5e5;
+}
+
+.document-upload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.document-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.doc-status-ok {
+  color: #16a34a;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.document-upload-status {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.claim-request-list {
+  list-style: none;
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.claim-request-item {
+  border-top: 1px solid #e5e5e5;
+  padding-top: 0.75rem;
+}
+
+.claim-request-status {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.claim-filing-cta {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.claim-filing-cta button {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  background: #171717;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.claim-filing-cta button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .result-meta {
