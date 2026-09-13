@@ -89,6 +89,36 @@ export async function fetchLikelySettlementDockets(
   return raw.results.slice(0, limit);
 }
 
+/**
+ * Finds the CourtListener docket for a case identified elsewhere (e.g. by
+ * a lead from a secondary settlement-tracking source) — tried by docket
+ * number first, since that's an exact identifier, falling back to a case
+ * name search. Docket *metadata* (parties, court, filing date) is public
+ * and in CourtListener's index even when the actual filed documents are
+ * paywalled and never mirrored to RECAP, so this reliably finds the
+ * docket to link to even for cases our own document-text search
+ * (fetchLikelySettlementDockets) would never surface.
+ */
+export async function findDocketByCaseIdentifier(params: {
+  docketNumber: string | null;
+  caseName: string | null;
+}): Promise<RecapDocket | null> {
+  const queries = [params.docketNumber, params.caseName].filter(
+    (q): q is string => Boolean(q && q.trim()),
+  );
+
+  for (const q of queries) {
+    const searchParams = new URLSearchParams({ type: "r", q });
+    const response = await throttledFetch(
+      `${BASE_URL}/search/?${searchParams.toString()}`,
+    );
+    if (!response.ok) continue;
+    const raw = (await response.json()) as RawSearchResponse;
+    if (raw.results.length > 0) return raw.results[0];
+  }
+  return null;
+}
+
 export interface RecapDocument {
   id: number;
   description: string;
