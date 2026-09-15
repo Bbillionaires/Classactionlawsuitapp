@@ -72,14 +72,22 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
   try {
     memberId = await getCurrentMemberId();
     if (memberId) {
-      const authorization = await getLatestAuthorization(memberId);
+      const currentMemberId = memberId;
+      const [authorization, claimRequests] = await Promise.all([
+        getLatestAuthorization(currentMemberId),
+        Promise.all(
+          settlements.map((settlement) =>
+            getClaimRequest(currentMemberId, settlement.id),
+          ),
+        ),
+      ]);
       hasAuthorized = authorization !== null;
-      for (const settlement of settlements) {
-        const claimRequest = await getClaimRequest(memberId, settlement.id);
+      settlements.forEach((settlement, i) => {
+        const claimRequest = claimRequests[i];
         if (claimRequest) {
           claimRequestStatusBySettlement.set(settlement.id, claimRequest.status);
         }
-      }
+      });
     }
   } catch (error) {
     console.error(`Failed to load member claim state for docket ${id}:`, error);

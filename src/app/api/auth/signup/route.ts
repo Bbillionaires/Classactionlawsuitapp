@@ -47,10 +47,29 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    // Postgres unique_violation (23505): two concurrent signups for the
+    // same email both passed the findMemberByEmail check above before
+    // either inserted. The DB constraint is the real source of truth —
+    // report it the same way as the pre-check, not as a generic failure.
+    if (isUniqueViolation(error)) {
+      return NextResponse.json(
+        { error: "An account with that email already exists." },
+        { status: 409 },
+      );
+    }
     console.error("Signup failed:", error);
     return NextResponse.json(
       { error: "Something went wrong creating your account." },
       { status: 500 },
     );
   }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
 }

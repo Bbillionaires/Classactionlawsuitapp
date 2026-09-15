@@ -124,13 +124,15 @@ export async function searchClassActionCases(
 
   const url = `${getBaseUrl()}/search/?${searchParams.toString()}`;
 
-  // CourtListener throttles this token to 5 requests/min. Docket search
-  // results don't change second-to-second, so cache each distinct query for
-  // a minute — this is the difference between one visitor's page load and
-  // ten visitors' page loads costing the same request budget.
+  // CourtListener throttles this token to 5 requests/min, shared with the
+  // discovery worker — a live 60s cache still saturated that budget under
+  // real traffic (confirmed directly: a case page kept hitting the 429
+  // fallback for several minutes straight). Newly filed cases don't need
+  // second-level freshness, so 5 minutes trades a small amount of
+  // staleness for a real reduction in how often visitors hit the wall.
   const response = await fetch(url, {
     headers: getAuthHeaders(),
-    next: { revalidate: 60 },
+    next: { revalidate: 300 },
   });
 
   if (!response.ok) {
@@ -174,7 +176,7 @@ export async function getDocketById(
 
   const response = await fetch(url, {
     headers: getAuthHeaders(),
-    next: { revalidate: 60 },
+    next: { revalidate: 300 },
   });
 
   if (!response.ok) {
@@ -224,7 +226,7 @@ export async function getDocketEntries(
 
   const response = await fetch(url, {
     headers: getAuthHeaders(),
-    next: { revalidate: 60 },
+    next: { revalidate: 300 },
   });
 
   if (!response.ok) {
