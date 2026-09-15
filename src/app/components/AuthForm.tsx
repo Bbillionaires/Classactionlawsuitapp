@@ -2,11 +2,12 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { safeRedirectPath } from "@/lib/safeRedirect";
 
 export default function AuthForm({ mode }: { mode: "signup" | "login" }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/account";
+  const next = safeRedirectPath(searchParams.get("next"), "/account");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

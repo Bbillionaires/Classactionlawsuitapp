@@ -122,9 +122,8 @@ function fieldTextByIdContains(
 }
 
 function fieldLink($: cheerio.CheerioAPI, headingId: string): string | null {
-  const heading = $(`#${headingId}`);
-  if (heading.length === 0) return null;
-  const valueColumn = heading.closest(".wp-block-column").next(".wp-block-column");
+  const valueColumn = valueColumnFor($, $(`#${headingId}`));
+  if (!valueColumn) return null;
   const href = valueColumn.find("a").first().attr("href");
   return href || null;
 }
