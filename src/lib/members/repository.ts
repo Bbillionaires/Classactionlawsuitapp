@@ -81,6 +81,17 @@ export async function getClaimRequest(
   );
 }
 
+/** Scoped to memberId so a caller can never reference another member's claim request. */
+export async function getClaimRequestByIdForMember(
+  memberId: number,
+  claimRequestId: number,
+): Promise<ClaimRequest | null> {
+  return queryOne<ClaimRequest>(
+    `SELECT * FROM claim_requests WHERE id = $1 AND member_id = $2`,
+    [claimRequestId, memberId],
+  );
+}
+
 export async function createClaimRequest(
   memberId: number,
   settlementId: number,

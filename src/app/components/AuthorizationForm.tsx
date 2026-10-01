@@ -2,11 +2,12 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { safeRedirectPath } from "@/lib/safeRedirect";
 
 export default function AuthorizationForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/account";
+  const next = safeRedirectPath(searchParams.get("next"), "/account");
 
   const [signedName, setSignedName] = useState("");
   const [agreed, setAgreed] = useState(false);

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getCurrentMemberId } from "@/lib/members/auth";
-import { addMemberDocument } from "@/lib/members/repository";
+import {
+  addMemberDocument,
+  getClaimRequestByIdForMember,
+} from "@/lib/members/repository";
 import type { MemberDocumentType } from "@/lib/members/types";
 
 const DOC_TYPES: MemberDocumentType[] = ["government_id", "claim_proof"];
@@ -35,10 +38,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File is too large (10MB max)." }, { status: 413 });
   }
 
-  const claimRequestId =
+  const requestedClaimRequestId =
     typeof claimRequestIdRaw === "string" && claimRequestIdRaw.trim()
       ? Number(claimRequestIdRaw)
       : null;
+
+  // Only attach the document to a claim request that actually belongs to
+  // this member — otherwise a guessed id could link a document (and the
+  // signal that a document was uploaded) to a different member's claim.
+  let claimRequestId: number | null = null;
+  if (Number.isFinite(requestedClaimRequestId)) {
+    const owned = await getClaimRequestByIdForMember(
+      memberId,
+      requestedClaimRequestId as number,
+    );
+    if (!owned) {
+      return NextResponse.json(
+        { error: "That claim request wasn't found." },
+        { status: 404 },
+      );
+    }
+    claimRequestId = owned.id;
+  }
 
   try {
     // Private access: these are government ID photos and claim proof
@@ -51,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     const document = await addMemberDocument({
       memberId,
-      claimRequestId: Number.isFinite(claimRequestId) ? claimRequestId : null,
+      claimRequestId,
       docType: docType as MemberDocumentType,
       fileUrl: blob.url,
       fileName: file.name || null,

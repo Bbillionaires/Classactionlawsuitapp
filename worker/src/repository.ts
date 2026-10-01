@@ -23,6 +23,17 @@ export interface SettlementInput {
   verificationStatus: VerificationStatus;
   verificationSource: string;
   confidenceScore: number;
+  // Optional richer fields — populated when the discovery path actually
+  // extracted them (currently only the aggregator-lead path does; the
+  // CourtListener-text path only ever finds a bare URL). All nullable so
+  // existing callers keep working unchanged.
+  claimFormUrl?: string | null;
+  settlementAmount?: string | null;
+  estimatedAward?: string | null;
+  claimDeadline?: Date | null;
+  finalApprovalHearingDate?: Date | null;
+  classDefinition?: string | null;
+  proofRequirements?: string | null;
 }
 
 /**
@@ -94,9 +105,11 @@ export async function upsertSettlement(
       `INSERT INTO settlements (
         courtlistener_docket_id, case_name, docket_number, court_id,
         settlement_website_url, settlement_website_domain, settlement_administrator,
+        claim_form_url, settlement_amount, estimated_award, claim_deadline,
+        final_approval_hearing_date, class_definition, proof_requirements,
         status, stage, verification_status, verification_source, confidence_score,
         last_verified_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, now())
       RETURNING id`,
       [
         input.courtlistenerDocketId,
@@ -106,6 +119,13 @@ export async function upsertSettlement(
         input.settlementWebsiteUrl,
         input.settlementWebsiteDomain,
         input.settlementAdministrator,
+        input.claimFormUrl ?? null,
+        input.settlementAmount ?? null,
+        input.estimatedAward ?? null,
+        input.claimDeadline ?? null,
+        input.finalApprovalHearingDate ?? null,
+        input.classDefinition ?? null,
+        input.proofRequirements ?? null,
         input.status,
         input.stage,
         input.verificationStatus,
@@ -117,7 +137,9 @@ export async function upsertSettlement(
   }
 
   // Only overwrite the URL/verification fields if this finding is at
-  // least as confident as what's already stored.
+  // least as confident as what's already stored. The descriptive fields
+  // (amount, deadline, proof, etc.) merge in alongside them — COALESCE
+  // keeps whatever was already known if this finding didn't include one.
   if (input.confidenceScore >= existing.confidence_score) {
     await pool.query(
       `UPDATE settlements SET
@@ -127,11 +149,18 @@ export async function upsertSettlement(
         settlement_website_url = $5,
         settlement_website_domain = $6,
         settlement_administrator = COALESCE($7, settlement_administrator),
-        status = $8,
-        stage = $9,
-        verification_status = $10,
-        verification_source = $11,
-        confidence_score = $12,
+        claim_form_url = COALESCE($8, claim_form_url),
+        settlement_amount = COALESCE($9, settlement_amount),
+        estimated_award = COALESCE($10, estimated_award),
+        claim_deadline = COALESCE($11, claim_deadline),
+        final_approval_hearing_date = COALESCE($12, final_approval_hearing_date),
+        class_definition = COALESCE($13, class_definition),
+        proof_requirements = COALESCE($14, proof_requirements),
+        status = $15,
+        stage = $16,
+        verification_status = $17,
+        verification_source = $18,
+        confidence_score = $19,
         last_verified_at = now(),
         updated_at = now()
       WHERE id = $1`,
@@ -143,6 +172,13 @@ export async function upsertSettlement(
         input.settlementWebsiteUrl,
         input.settlementWebsiteDomain,
         input.settlementAdministrator,
+        input.claimFormUrl ?? null,
+        input.settlementAmount ?? null,
+        input.estimatedAward ?? null,
+        input.claimDeadline ?? null,
+        input.finalApprovalHearingDate ?? null,
+        input.classDefinition ?? null,
+        input.proofRequirements ?? null,
         input.status,
         input.stage,
         input.verificationStatus,
