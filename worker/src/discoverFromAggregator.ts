@@ -4,18 +4,17 @@ import { findDocketByCaseIdentifier } from "./courtlistener.js";
 import { isKnownAdministratorDomain, isBoilerplateDomain } from "./keywords.js";
 import { deriveStatusAndStage } from "./status.js";
 import { findMatchingSettlement, upsertSettlement, recordSource } from "./repository.js";
+import { DATE_PATTERN, parseDateToken } from "./dates.js";
 import type { RunStats } from "./discover.js";
 
 const AGGREGATOR_LEADS_PER_RUN = Number(process.env.AGGREGATOR_LEADS_PER_RUN ?? 3);
 
-/** "10/20/2026" -> Date; "Varies", "N/A", empty, unparseable -> null. */
+/** "10/20/2026" or "March 15, 2027" -> Date; "Varies", "N/A", empty, unparseable -> null. */
 function parseUsDate(text: string | null): Date | null {
   if (!text) return null;
-  const match = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const match = DATE_PATTERN.exec(text);
   if (!match) return null;
-  const [, month, day, year] = match;
-  const date = new Date(Number(year), Number(month) - 1, Number(day));
-  return Number.isNaN(date.getTime()) ? null : date;
+  return parseDateToken(match[0]);
 }
 
 function isNoProofNeeded(text: string | null): boolean {

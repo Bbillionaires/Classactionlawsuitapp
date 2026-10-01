@@ -16,12 +16,12 @@ const MONTH_INDEX: Record<string, number> = {
   december: 11,
 };
 
-const DATE_PATTERN = new RegExp(
+export const DATE_PATTERN = new RegExp(
   `${MONTH_NAMES}\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}/\\d{1,2}/\\d{4}`,
   "i",
 );
 
-function parseDateToken(token: string): Date | null {
+export function parseDateToken(token: string): Date | null {
   const slash = token.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slash) {
     const [, m, d, y] = slash;
