@@ -24,9 +24,8 @@ export interface SettlementInput {
   verificationSource: string;
   confidenceScore: number;
   // Optional richer fields — populated when the discovery path actually
-  // extracted them (currently only the aggregator-lead path does; the
-  // CourtListener-text path only ever finds a bare URL). All nullable so
-  // existing callers keep working unchanged.
+  // extracted them. All nullable so existing callers keep working
+  // unchanged.
   claimFormUrl?: string | null;
   settlementAmount?: string | null;
   estimatedAward?: string | null;
