@@ -10,6 +10,7 @@ import {
   administratorNameForDomain,
 } from "./keywords.js";
 import { extractCandidateUrls, scoreUrl } from "./extract.js";
+import { extractClaimDeadline, extractFinalApprovalDate } from "./dates.js";
 import { deriveStatusAndStage } from "./status.js";
 import { findMatchingSettlement, upsertSettlement, recordSource } from "./repository.js";
 
@@ -73,6 +74,7 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
         : `administrator "${adminMatch!.name}"`;
       const isCourtOrder = /\border\b/i.test(entry.description);
       const candidates = extractCandidateUrls(entry.description);
+      let searchableText = entry.description;
 
       if (candidates.length === 0 && documentsFetched < MAX_DOCUMENTS_PER_RUN) {
         for (const doc of entry.recap_documents) {
@@ -80,9 +82,19 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
           if (!doc.is_available) continue; // not mirrored to RECAP; nothing to scan
           documentsFetched += 1;
           const text = await fetchDocumentPlainText(doc.id);
-          if (text) candidates.push(...extractCandidateUrls(text));
+          if (text) {
+            candidates.push(...extractCandidateUrls(text));
+            searchableText += `\n${text}`;
+          }
         }
       }
+
+      // Same source text the URL extraction above just scanned — only
+      // promoted to "active" when a real deadline or hearing date is
+      // actually found in it, per deriveStatusAndStage's conservative
+      // default of "pending" otherwise.
+      const claimDeadline = extractClaimDeadline(searchableText);
+      const finalApprovalDate = extractFinalApprovalDate(searchableText);
 
       for (const candidate of candidates) {
         stats.candidatesFound += 1;
@@ -102,8 +114,8 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
 
         const { status, stage } = deriveStatusAndStage({
           hasWebsite: true,
-          claimDeadline: null,
-          finalApprovalDate: null,
+          claimDeadline,
+          finalApprovalDate,
         });
 
         const settlementId = await upsertSettlement(pool, existing, {
@@ -114,6 +126,8 @@ export async function runDiscovery(pool: Pool): Promise<RunStats> {
           settlementWebsiteUrl: candidate.url,
           settlementWebsiteDomain: candidate.domain,
           settlementAdministrator: administrator,
+          claimDeadline,
+          finalApprovalHearingDate: finalApprovalDate,
           status,
           stage,
           verificationStatus: score.verificationStatus,
