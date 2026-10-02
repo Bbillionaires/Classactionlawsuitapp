@@ -21,12 +21,29 @@ export const DATE_PATTERN = new RegExp(
   "i",
 );
 
+// `new Date(y, m, d)` doesn't reject an out-of-range month/day - it
+// silently rolls over (e.g. day 45 in a given month becomes a date well
+// into a later month), which would otherwise let garbage digits near an
+// anchor phrase get stored as a real, fabricated deadline. Rejecting
+// anything that doesn't round-trip back to the exact input catches that.
+function buildValidDate(year: number, month: number, day: number): Date | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
 export function parseDateToken(token: string): Date | null {
   const slash = token.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slash) {
     const [, m, d, y] = slash;
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return buildValidDate(Number(y), Number(m), Number(d));
   }
   const named = token.match(
     new RegExp(`^${MONTH_NAMES}\\s+(\\d{1,2}),?\\s+(\\d{4})$`, "i"),
@@ -34,8 +51,7 @@ export function parseDateToken(token: string): Date | null {
   if (named) {
     const [, month, day, year] = named;
     const monthIndex = MONTH_INDEX[month.toLowerCase()];
-    const date = new Date(Number(year), monthIndex, Number(day));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return buildValidDate(Number(year), monthIndex + 1, Number(day));
   }
   return null;
 }
@@ -55,16 +71,28 @@ function isPlausible(date: Date): boolean {
  * a filing date, a case-opening date, or anything else unrelated.
  * Deliberately conservative: no anchor match nearby means no date, not a
  * guess at one.
+ *
+ * Checks every occurrence of each anchor phrase, not just the first - a
+ * longer document can easily mention the same phrase once in boilerplate
+ * (with no date nearby) before the real, dated instance later on.
  */
 function extractAnchoredDate(text: string, anchors: RegExp[]): Date | null {
   for (const anchor of anchors) {
-    const anchorMatch = anchor.exec(text);
-    if (!anchorMatch) continue;
-    const window = text.slice(anchorMatch.index, anchorMatch.index + 160);
-    const dateMatch = DATE_PATTERN.exec(window);
-    if (!dateMatch) continue;
-    const date = parseDateToken(dateMatch[0]);
-    if (date && isPlausible(date)) return date;
+    // A fresh global copy per call: reusing a shared "g" regex across
+    // calls would carry stateful lastIndex between unrelated documents.
+    const globalAnchor = new RegExp(anchor.source, `${anchor.flags}g`);
+    let anchorMatch: RegExpExecArray | null;
+    while ((anchorMatch = globalAnchor.exec(text)) !== null) {
+      const window = text.slice(anchorMatch.index, anchorMatch.index + 160);
+      const dateMatch = DATE_PATTERN.exec(window);
+      if (dateMatch) {
+        const date = parseDateToken(dateMatch[0]);
+        if (date && isPlausible(date)) return date;
+      }
+      if (globalAnchor.lastIndex === anchorMatch.index) {
+        globalAnchor.lastIndex += 1; // guard against a zero-width match looping forever
+      }
+    }
   }
   return null;
 }
