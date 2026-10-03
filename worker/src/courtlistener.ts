@@ -95,8 +95,13 @@ export async function fetchLikelySettlementDockets(
 // mismatch on that, without loosening the check enough to match a
 // different case entirely.
 function normalizeDocketNumber(raw: string): string {
-  const core = raw.match(/\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}/i);
-  return (core ? core[0] : raw).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const core = raw.match(/(\d{1,2}):(\d{2})-([a-z]{2})-(\d{3,6})/i);
+  if (!core) return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const [, office, year, type, number] = core;
+  // Compare the sequence number numerically, not as a zero-padded
+  // string - CourtListener and a lead source can format the same docket
+  // with or without leading zeros ("01234" vs "1234").
+  return `${office}:${year}-${type.toLowerCase()}-${Number(number)}`;
 }
 
 const CASE_NAME_STOPWORDS = new Set([

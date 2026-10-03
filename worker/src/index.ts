@@ -50,7 +50,22 @@ async function main(): Promise<void> {
       stats,
       errors.length > 0 ? { errors } : "",
     );
-    if (errors.length > 0) process.exitCode = 1;
+    // A CourtListener 429 means someone else (the live site, most likely)
+    // is using the shared rate-limit budget right now - already caught,
+    // logged above, and worked around (the other discovery path still
+    // ran). That's expected, recoverable real-world behavior, not
+    // evidence this deployment is broken, so it shouldn't flip the exit
+    // code and turn into a false "deployment failed" signal on Railway
+    // every time the budget happens to be busy during a run. Any other
+    // kind of error is a real problem and still fails loudly.
+    // Match the actual status code this project's CourtListener client
+    // always appends at the very end of its error messages ("...: 429"),
+    // not just the substring "429" anywhere - a docket ID or sequence
+    // number can easily contain "429" by coincidence (e.g. docket 42900123
+    // failing with a genuine 500 would otherwise read as rate-limited and
+    // get waved through).
+    const onlyRateLimited = errors.length > 0 && errors.every((e) => /: 429$/.test(e));
+    if (errors.length > 0 && !onlyRateLimited) process.exitCode = 1;
   } finally {
     // Guaranteed even if ensureSchema/recordWorkerRun itself throws -
     // without this, a DB hiccup outside the two discovery try/catches
