@@ -4,6 +4,7 @@ import {
   createClaimRequest,
   getLatestAuthorization,
 } from "@/lib/members/repository";
+import { getSettlementsByIds } from "@/lib/settlements/repository";
 
 export async function POST(request: NextRequest) {
   const memberId = await getCurrentMemberId();
@@ -19,8 +20,17 @@ export async function POST(request: NextRequest) {
   }
 
   const settlementId = Number(body.settlementId);
-  if (!Number.isFinite(settlementId)) {
+  if (!Number.isInteger(settlementId)) {
     return NextResponse.json({ error: "Missing settlement id." }, { status: 400 });
+  }
+
+  // settlements is owned by the discovery worker's schema (no FK here by
+  // design - see src/lib/members/schema.ts) - without this check, any
+  // signed-in member could POST an arbitrary/made-up id and create a
+  // claim_requests row referencing nothing real.
+  const [settlement] = await getSettlementsByIds([settlementId]);
+  if (!settlement) {
+    return NextResponse.json({ error: "Settlement not found." }, { status: 404 });
   }
 
   const authorization = await getLatestAuthorization(memberId);

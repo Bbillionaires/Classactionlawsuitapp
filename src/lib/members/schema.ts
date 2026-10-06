@@ -21,6 +21,17 @@ export async function ensureSchema(pool: Pool): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- Login brute-force throttle, keyed by the attempted email (not
+    -- member_id - a wrong email with no matching member still needs to be
+    -- throttled, or an attacker just targets nonexistent/mistyped emails
+    -- to dodge the limit). Not an FK to members on purpose, same reason.
+    CREATE TABLE IF NOT EXISTS login_throttle (
+      email TEXT PRIMARY KEY,
+      failed_attempts INT NOT NULL DEFAULT 0,
+      locked_until TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
     -- The one-link authorization-to-file / hold-harmless agreement. One
     -- row per member per time they sign it (a re-sign after we update the
     -- document text creates a new row rather than overwriting history).
