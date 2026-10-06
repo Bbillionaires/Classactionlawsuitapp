@@ -6,6 +6,8 @@ import type {
   Member,
   MemberDocument,
   MemberDocumentType,
+  SavedSearch,
+  SavedSearchSort,
 } from "./types";
 
 export async function findMemberByEmail(email: string): Promise<Member | null> {
@@ -139,4 +141,69 @@ export async function addMemberDocument(input: {
   );
   if (!row) throw new Error("Failed to record uploaded document.");
   return row;
+}
+
+export async function listSavedSearchesForMember(
+  memberId: number,
+): Promise<SavedSearch[]> {
+  return query<SavedSearch>(
+    `SELECT * FROM saved_searches WHERE member_id = $1 ORDER BY created_at DESC`,
+    [memberId],
+  );
+}
+
+export async function createSavedSearch(input: {
+  memberId: number;
+  name: string;
+  query: string;
+  courtId: string | null;
+  cause: string | null;
+  filedAfter: string | null;
+  filedBefore: string | null;
+  sort: SavedSearchSort;
+}): Promise<SavedSearch> {
+  const row = await queryOne<SavedSearch>(
+    `INSERT INTO saved_searches
+       (member_id, name, query, court_id, cause, filed_after, filed_before, sort)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
+    [
+      input.memberId,
+      input.name,
+      input.query,
+      input.courtId,
+      input.cause,
+      input.filedAfter,
+      input.filedBefore,
+      input.sort,
+    ],
+  );
+  if (!row) throw new Error("Failed to create saved search.");
+  return row;
+}
+
+/** Scoped to memberId - returns null (not found/not owned) rather than updating another member's row. */
+export async function setSavedSearchAlertsEnabled(
+  memberId: number,
+  savedSearchId: number,
+  alertsEnabled: boolean,
+): Promise<SavedSearch | null> {
+  return queryOne<SavedSearch>(
+    `UPDATE saved_searches
+     SET alerts_enabled = $3, updated_at = now()
+     WHERE id = $1 AND member_id = $2
+     RETURNING *`,
+    [savedSearchId, memberId, alertsEnabled],
+  );
+}
+
+/** Scoped to memberId - returns the deleted row, or null if it didn't exist/wasn't owned by this member. */
+export async function deleteSavedSearchForMember(
+  memberId: number,
+  savedSearchId: number,
+): Promise<SavedSearch | null> {
+  return queryOne<SavedSearch>(
+    `DELETE FROM saved_searches WHERE id = $1 AND member_id = $2 RETURNING *`,
+    [savedSearchId, memberId],
+  );
 }

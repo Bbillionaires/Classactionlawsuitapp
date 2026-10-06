@@ -47,6 +47,51 @@ interface RawSearchResponse {
   results: RecapDocket[];
 }
 
+export interface SavedSearchQuery {
+  query: string;
+  courtId: string | null;
+  cause: string | null;
+  filedAfter: string | null;
+  filedBefore: string | null;
+  sort: "relevance" | "newest" | "oldest";
+}
+
+const SORT_PARAM: Record<SavedSearchQuery["sort"], string | null> = {
+  relevance: null,
+  newest: "dateFiled desc",
+  oldest: "dateFiled asc",
+};
+
+/**
+ * General-purpose docket search, mirroring the main app's
+ * searchClassActionCases (src/lib/courtlistener.ts) but through this
+ * worker's own throttled/shared-budget-aware fetch - used to re-run a
+ * member's saved search for new matches (see savedSearchAlerts.ts).
+ */
+export async function searchDockets(
+  params: SavedSearchQuery,
+): Promise<RecapDocket[]> {
+  const searchParams = new URLSearchParams({
+    type: "r",
+    q: params.query ? `${params.query} class action` : "class action",
+  });
+  if (params.courtId) searchParams.set("court", params.courtId);
+  if (params.cause) searchParams.set("cause", params.cause);
+  if (params.filedAfter) searchParams.set("filed_after", params.filedAfter);
+  if (params.filedBefore) searchParams.set("filed_before", params.filedBefore);
+  const orderBy = SORT_PARAM[params.sort];
+  if (orderBy) searchParams.set("order_by", orderBy);
+
+  const response = await throttledFetch(
+    `${BASE_URL}/search/?${searchParams.toString()}`,
+  );
+  if (!response.ok) {
+    throw new Error(`CourtListener search failed: ${response.status}`);
+  }
+  const raw = (await response.json()) as RawSearchResponse;
+  return raw.results;
+}
+
 /**
  * Dockets likely to actually be near a settlement, for the worker's
  * watchlist.

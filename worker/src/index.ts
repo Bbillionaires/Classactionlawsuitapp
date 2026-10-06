@@ -2,6 +2,7 @@ import { pool } from "./db.js";
 import { ensureSchema } from "./schema.js";
 import { runDiscovery, type RunStats } from "./discover.js";
 import { runAggregatorDiscovery } from "./discoverFromAggregator.js";
+import { runSavedSearchAlerts } from "./savedSearchAlerts.js";
 import { recordWorkerRun } from "./repository.js";
 
 async function main(): Promise<void> {
@@ -39,6 +40,17 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error("[worker] aggregator discovery failed:", err);
       errors.push(`Aggregator: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    console.log("[worker] checking saved searches for alertable matches...");
+    try {
+      const alertStats = await runSavedSearchAlerts(pool);
+      console.log(
+        `[worker] saved-search alerts: checked ${alertStats.checked}, sent ${alertStats.alertsSent}`,
+      );
+    } catch (err) {
+      console.error("[worker] saved-search alerts failed:", err);
+      errors.push(`SavedSearchAlerts: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     await recordWorkerRun(pool, {
