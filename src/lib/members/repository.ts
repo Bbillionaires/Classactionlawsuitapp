@@ -14,6 +14,50 @@ export async function findMemberByEmail(email: string): Promise<Member | null> {
   ]);
 }
 
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MINUTES = 15;
+
+/** 0 if not currently locked out, otherwise how long until the lockout clears. */
+export async function getLoginLockoutRemainingMs(email: string): Promise<number> {
+  const row = await queryOne<{ locked_until: string | null }>(
+    "SELECT locked_until FROM login_throttle WHERE email = $1",
+    [email.toLowerCase().trim()],
+  );
+  if (!row?.locked_until) return 0;
+  const remaining = new Date(row.locked_until).getTime() - Date.now();
+  return remaining > 0 ? remaining : 0;
+}
+
+/**
+ * Call on every failed login attempt (wrong password, or no such member -
+ * the caller shouldn't distinguish the two). The WHERE clause skips the
+ * update entirely while an existing lockout is still active, so attempts
+ * made during a lockout don't keep pushing it further into the future.
+ */
+export async function recordFailedLogin(email: string): Promise<void> {
+  await query(
+    `INSERT INTO login_throttle (email, failed_attempts, locked_until, updated_at)
+     VALUES ($1, 1, NULL, now())
+     ON CONFLICT (email) DO UPDATE SET
+       failed_attempts = login_throttle.failed_attempts + 1,
+       locked_until = CASE
+         WHEN login_throttle.failed_attempts + 1 >= $2
+           THEN now() + make_interval(mins => $3)
+         ELSE NULL
+       END,
+       updated_at = now()
+     WHERE login_throttle.locked_until IS NULL OR login_throttle.locked_until <= now()`,
+    [email.toLowerCase().trim(), MAX_FAILED_LOGIN_ATTEMPTS, LOGIN_LOCKOUT_MINUTES],
+  );
+}
+
+/** Call on every successful login to reset the counter. */
+export async function clearFailedLogins(email: string): Promise<void> {
+  await query("DELETE FROM login_throttle WHERE email = $1", [
+    email.toLowerCase().trim(),
+  ]);
+}
+
 export async function createMember(
   email: string,
   passwordHash: string,
