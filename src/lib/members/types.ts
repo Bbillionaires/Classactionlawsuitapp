@@ -46,3 +46,21 @@ export interface MemberDocument {
   file_name: string | null;
   uploaded_at: string;
 }
+
+export type SavedSearchSort = "relevance" | "newest" | "oldest";
+
+export interface SavedSearch {
+  id: number;
+  member_id: number;
+  name: string;
+  query: string;
+  court_id: string | null;
+  cause: string | null;
+  filed_after: string | null;
+  filed_before: string | null;
+  sort: SavedSearchSort;
+  alerts_enabled: boolean;
+  last_checked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

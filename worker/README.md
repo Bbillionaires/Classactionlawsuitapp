@@ -32,6 +32,19 @@ See `../src/lib/settlements/` in the main app for how this data is read
 and displayed — this worker only ever writes; the Next.js app is
 read-only against the same database.
 
+**Path 3 — saved-search alerts** (`savedSearchAlerts.ts`): every run, a
+bounded, rotating slice of members' saved searches (`saved_searches`,
+owned by the main app's schema — `../src/lib/members/schema.ts`) gets
+re-run against CourtListener. A search's very first check never emails
+anything; it only seeds a dedup table (`saved_search_alerts_sent`) from
+whatever currently matches, since the member already saw those results
+on the search page before saving. From the next check onward, genuinely
+new matches get emailed as one digest per saved search via Resend (see
+`email.ts` — a separate, duplicated copy of the main app's env-gated
+pattern, since this is a separate npm package). Same shared CourtListener
+budget as everything above — `SAVED_SEARCH_ALERTS_PER_RUN` bounds it the
+same way `AGGREGATOR_LEADS_PER_RUN` does.
+
 ## A note on how Path 2 gets past Cloudflare
 
 Top Class Actions sits behind Cloudflare's bot check, which serves a
@@ -114,3 +127,13 @@ required; the rest have sane defaults.
   domain — will show up as `probable`, not `verified`. That's the
   intended fail-safe behavior, not a bug to "fix" by loosening
   verification.
+- **Path 3 (saved-search alerts) isn't real-time** — it's bounded by
+  `SAVED_SEARCH_ALERTS_PER_RUN` and rotates oldest-checked-first, so with
+  more saved searches than that per run, any individual one is only
+  re-checked once every several runs. It also re-runs CourtListener's
+  free-text search, the same imprecise matching the live search page
+  uses — not an exact structured-field match — so "new matches" can
+  occasionally include a result a strict reading of the saved filters
+  wouldn't. And it depends on `saved_searches` already existing (created
+  lazily by the main app on its first web request); until then, this
+  path is a harmless no-op, not an error.
