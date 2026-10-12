@@ -222,7 +222,15 @@ async function searchFirstDocket(query: string): Promise<RecapDocket | null> {
   const response = await throttledFetch(
     `${BASE_URL}/search/?${searchParams.toString()}`,
   );
-  if (!response.ok) return null;
+  // A failed request (429, or anything else) is not the same as "no
+  // matching docket" - swallowing it here as null made a rate-limited
+  // lookup indistinguishable from a genuine no-match, which was silently
+  // starving the aggregator-lead path of candidates with no visible
+  // error (see discoverFromAggregator.ts) whenever this call lands while
+  // the shared CourtListener budget is already spent.
+  if (!response.ok) {
+    throw new Error(`CourtListener search failed: ${response.status}`);
+  }
   const raw = (await response.json()) as RawSearchResponse;
   return raw.results[0] ?? null;
 }
