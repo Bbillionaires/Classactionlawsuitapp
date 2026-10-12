@@ -680,12 +680,29 @@ a {
   margin-top: 0.75rem;
 }
 
+.saved-searches-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
 .saved-search {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   border: 1px solid #ccc;
   border-radius: 999px;
   overflow: hidden;
+  gap: 0.4rem;
+}
+
+.saved-search-alerts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: #666;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .saved-search button {

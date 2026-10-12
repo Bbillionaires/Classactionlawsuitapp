@@ -72,5 +72,47 @@ export async function ensureSchema(pool: Pool): Promise<void> {
       ON member_documents (member_id);
     CREATE INDEX IF NOT EXISTS idx_member_documents_claim_request
       ON member_documents (claim_request_id);
+
+    -- A member's saved CourtListener search, re-runnable with one click
+    -- and (optionally) polled by the discovery worker for new matches.
+    -- Mirrors src/lib/courtlistener.ts's SearchClassActionCasesParams
+    -- minus the pagination cursor (not meaningful to persist).
+    CREATE TABLE IF NOT EXISTS saved_searches (
+      id BIGSERIAL PRIMARY KEY,
+      member_id BIGINT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      query TEXT NOT NULL DEFAULT '',
+      court_id TEXT,
+      cause TEXT,
+      -- TEXT, not DATE: these are only ever opaque YYYY-MM-DD strings
+      -- round-tripped to CourtListener's search API, never compared in
+      -- SQL, so there's no reason to take on the pg driver's DATE-column parsing
+      -- (which hands back a JS Date object, not the "YYYY-MM-DD" string
+      -- an <input type="date"> needs back out).
+      filed_after TEXT CHECK (filed_after IS NULL OR filed_after ~ '^\\d{4}-\\d{2}-\\d{2}$'),
+      filed_before TEXT CHECK (filed_before IS NULL OR filed_before ~ '^\\d{4}-\\d{2}-\\d{2}$'),
+      sort TEXT NOT NULL DEFAULT 'relevance'
+        CHECK (sort IN ('relevance', 'newest', 'oldest')),
+      alerts_enabled BOOLEAN NOT NULL DEFAULT true,
+      last_checked_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_saved_searches_member
+      ON saved_searches (member_id);
+    CREATE INDEX IF NOT EXISTS idx_saved_searches_alerts_rotation
+      ON saved_searches (last_checked_at ASC NULLS FIRST)
+      WHERE alerts_enabled;
+
+    -- Dedup record for alert emails: a (saved_search_id, docket_id) pair
+    -- only ever gets emailed once, regardless of how many times the
+    -- worker re-checks this saved search afterward.
+    CREATE TABLE IF NOT EXISTS saved_search_alerts_sent (
+      saved_search_id BIGINT NOT NULL REFERENCES saved_searches(id) ON DELETE CASCADE,
+      docket_id BIGINT NOT NULL,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (saved_search_id, docket_id)
+    );
   `);
 }
