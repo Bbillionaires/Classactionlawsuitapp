@@ -37,8 +37,14 @@ function isNoProofNeeded(text: string | null): boolean {
 export async function runAggregatorDiscovery(
   pool: Pool,
   stats: RunStats,
-): Promise<void> {
+): Promise<string[]> {
   const leadUrls = await fetchOpenSettlementLeadUrls(AGGREGATOR_LEADS_PER_RUN);
+  // Collected (not just console.error'd) so a run where every lead fails -
+  // e.g. the shared CourtListener budget being exhausted - shows up in the
+  // stored worker_runs record that monitoring actually looks at, not just
+  // in ephemeral process logs. See index.ts, which folds these into the
+  // same `errors` list the other discovery paths report through.
+  const leadErrors: string[] = [];
 
   for (const leadUrl of leadUrls) {
     // Same spirit as discover.ts's per-docket isolation: one lead failing
@@ -125,6 +131,9 @@ export async function runAggregatorDiscovery(
       });
     } catch (err) {
       console.error(`[aggregator] failed to process lead ${leadUrl}:`, err);
+      leadErrors.push(err instanceof Error ? err.message : String(err));
     }
   }
+
+  return leadErrors;
 }

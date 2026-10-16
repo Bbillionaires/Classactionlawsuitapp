@@ -34,7 +34,12 @@ async function main(): Promise<void> {
     // lead path exists — so it gets priority for the budget.
     console.log("[worker] starting aggregator-lead discovery run...");
     try {
-      await runAggregatorDiscovery(pool, stats);
+      const leadErrors = await runAggregatorDiscovery(pool, stats);
+      // Pushed one per failed lead (not joined into one string) so the
+      // exit-code check below, which inspects each entry individually,
+      // still correctly flips to a real failure if even one of several
+      // concurrent lead failures wasn't actually rate-limiting.
+      for (const leadError of leadErrors) errors.push(`Aggregator: ${leadError}`);
     } catch (err) {
       console.error("[worker] aggregator discovery failed:", err);
       errors.push(`Aggregator: ${err instanceof Error ? err.message : String(err)}`);

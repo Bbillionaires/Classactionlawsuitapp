@@ -257,14 +257,27 @@ export async function findDocketByCaseIdentifier(params: {
   docketNumber: string | null;
   caseName: string | null;
 }): Promise<RecapDocket | null> {
+  // A failure on the docket-number attempt (e.g. a rate limit) must not
+  // skip the case-name attempt - they're independent requests, and the
+  // second one can easily still succeed. But a failure here is still a
+  // real failure, not a "no match", so if the case-name attempt doesn't
+  // turn up a match either, rethrow rather than returning null and
+  // masking it (the same honest-failure principle searchFirstDocket
+  // itself follows).
+  let docketNumberSearchFailure: unknown = null;
+
   if (params.docketNumber?.trim()) {
-    const candidate = await searchFirstDocket(params.docketNumber);
-    if (
-      candidate?.docketNumber &&
-      normalizeDocketNumber(candidate.docketNumber) ===
-        normalizeDocketNumber(params.docketNumber)
-    ) {
-      return candidate;
+    try {
+      const candidate = await searchFirstDocket(params.docketNumber);
+      if (
+        candidate?.docketNumber &&
+        normalizeDocketNumber(candidate.docketNumber) ===
+          normalizeDocketNumber(params.docketNumber)
+      ) {
+        return candidate;
+      }
+    } catch (err) {
+      docketNumberSearchFailure = err;
     }
   }
 
@@ -275,6 +288,7 @@ export async function findDocketByCaseIdentifier(params: {
     }
   }
 
+  if (docketNumberSearchFailure) throw docketNumberSearchFailure;
   return null;
 }
 
