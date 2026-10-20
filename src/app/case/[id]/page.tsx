@@ -8,13 +8,73 @@ import {
 } from "@/lib/courtlistener";
 import { getSettlementsForDocket } from "@/lib/settlements/repository";
 import type { Settlement } from "@/lib/settlements/types";
-import { getCurrentMemberId } from "@/lib/members/auth";
-import {
-  getClaimRequest,
-  getLatestAuthorization,
-} from "@/lib/members/repository";
-import type { ClaimRequestStatus } from "@/lib/members/types";
+import { loadMemberClaimState } from "@/lib/members/claimState";
 import SettlementCard from "./SettlementCard";
+
+/**
+ * CourtListener is temporarily unreachable (rate-limited, or erroring on
+ * their end) - not the same as the docket genuinely not existing (a real
+ * 404, handled separately). Rather than showing visitors a dead end with
+ * backend details they have no use for, fall back to whatever we already
+ * know about this docket's settlement(s) from our own database, which
+ * doesn't depend on CourtListener being reachable at all.
+ */
+async function LiveRecordUnavailable({ docketId }: { docketId: string }) {
+  let settlements: Settlement[] = [];
+  try {
+    settlements = await getSettlementsForDocket(docketId);
+  } catch (error) {
+    console.error(
+      `Failed to load settlements for docket ${docketId} during live-record fallback:`,
+      error,
+    );
+  }
+
+  // Nothing to render SettlementCard for below - skip the member/auth
+  // lookup entirely rather than doing it on a page that's already
+  // degraded because an external dependency is down.
+  const { memberId, hasAuthorized, claimRequestStatusBySettlement } =
+    settlements.length > 0
+      ? await loadMemberClaimState(settlements, `docket ${docketId} (live record unavailable)`)
+      : { memberId: null, hasAuthorized: false, claimRequestStatusBySettlement: new Map() };
+
+  return (
+    <main className="page">
+      <Link href="/" className="back-link">
+        ← Back to search
+      </Link>
+
+      {/* Deliberately not .unverified-listing-banner - that styling means
+          "this settlement hasn't been matched to a real court record,"
+          which isn't true here (this docket IS real; CourtListener is
+          just temporarily unreachable) and would wrongly read as a
+          caution about the settlement's legitimacy. */}
+      <p className="live-record-unavailable-banner">
+        We can&apos;t load the live court record for this case right now
+        {settlements.length > 0
+          ? ", but here's what we know about the settlement:"
+          : ". Please check back again shortly."}
+      </p>
+
+      {settlements.length > 0 && (
+        <section className="settlements">
+          {settlements.map((settlement) => (
+            <SettlementCard
+              key={settlement.id}
+              settlement={settlement}
+              currentPath={`/case/${docketId}`}
+              isSignedIn={memberId !== null}
+              hasAuthorized={hasAuthorized}
+              claimRequestStatus={
+                claimRequestStatusBySettlement.get(settlement.id) ?? null
+              }
+            />
+          ))}
+        </section>
+      )}
+    </main>
+  );
+}
 
 function entryDescription(entry: CourtListenerDocketEntry): string {
   if (entry.description) return entry.description;
@@ -26,31 +86,37 @@ function entryDescription(entry: CourtListenerDocketEntry): string {
 export default async function CasePage({ params }: PageProps<"/case/[id]">) {
   const { id } = await params;
 
+  // Fetched separately, not as one Promise.all: a 404 only ever means the
+  // docket itself (not its entries, which have no independent existence
+  // check), and entries failing shouldn't throw away a docket we did
+  // successfully fetch - bundling them meant a transient entries-only
+  // failure both discarded good docket data and could race a genuine
+  // docket 404 against an unrelated entries error.
   let docket;
-  let entries;
   try {
-    [docket, entries] = await Promise.all([
-      getDocketById(id),
-      getDocketEntries(id),
-    ]);
+    docket = await getDocketById(id);
   } catch (error) {
     if (error instanceof CourtListenerApiError) {
       if (error.status === 404) notFound();
-      if (error.status === 429) {
-        return (
-          <main className="page">
-            <Link href="/" className="back-link">
-              ← Back to search
-            </Link>
-            <p className="error">
-              CourtListener is rate-limiting requests right now. Please try
-              again in a minute.
-            </p>
-          </main>
-        );
+      // 429 (rate-limited) or a 5xx on CourtListener's end - the docket
+      // itself is presumably fine, we just can't reach it right now.
+      if (error.status === 429 || error.status >= 500) {
+        return <LiveRecordUnavailable docketId={id} />;
       }
     }
     throw error;
+  }
+
+  // Best-effort, like the settlements fetch below: entries are a
+  // secondary section of this page, not core to it, so a failure here
+  // shouldn't take down a page that otherwise loaded fine.
+  let entries: CourtListenerDocketEntry[] = [];
+  let entriesUnavailable = false;
+  try {
+    entries = await getDocketEntries(id);
+  } catch (error) {
+    console.error(`Failed to load docket entries for docket ${id}:`, error);
+    entriesUnavailable = true;
   }
 
   // Settlement data is a best-effort enrichment on top of CourtListener,
@@ -64,34 +130,8 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
     settlements = [];
   }
 
-  // Member/claim-filing state is likewise best-effort: a signed-out
-  // visitor or a database hiccup here should still see the case page.
-  let memberId: number | null = null;
-  let hasAuthorized = false;
-  const claimRequestStatusBySettlement = new Map<number, ClaimRequestStatus>();
-  try {
-    memberId = await getCurrentMemberId();
-    if (memberId) {
-      const currentMemberId = memberId;
-      const [authorization, claimRequests] = await Promise.all([
-        getLatestAuthorization(currentMemberId),
-        Promise.all(
-          settlements.map((settlement) =>
-            getClaimRequest(currentMemberId, settlement.id),
-          ),
-        ),
-      ]);
-      hasAuthorized = authorization !== null;
-      settlements.forEach((settlement, i) => {
-        const claimRequest = claimRequests[i];
-        if (claimRequest) {
-          claimRequestStatusBySettlement.set(settlement.id, claimRequest.status);
-        }
-      });
-    }
-  } catch (error) {
-    console.error(`Failed to load member claim state for docket ${id}:`, error);
-  }
+  const { memberId, hasAuthorized, claimRequestStatusBySettlement } =
+    await loadMemberClaimState(settlements, `docket ${id}`);
 
   return (
     <main className="page">
@@ -185,6 +225,12 @@ export default async function CasePage({ params }: PageProps<"/case/[id]">) {
       </a>
 
       <h2 className="entries-heading">Docket entries ({entries.length})</h2>
+      {entriesUnavailable && (
+        <p className="error">
+          Couldn&apos;t load docket entries right now. Please check back
+          shortly.
+        </p>
+      )}
       <ul className="entries">
         {entries.map((entry) => (
           <li key={entry.id} className="entry">

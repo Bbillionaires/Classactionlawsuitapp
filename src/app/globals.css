@@ -433,6 +433,16 @@ a {
   font-size: 0.9rem;
 }
 
+.live-record-unavailable-banner {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, #2563eb 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, #2563eb 10%, transparent);
+  color: #2563eb;
+  font-size: 0.9rem;
+}
+
 .settlement-provenance {
   margin-top: 0.75rem;
   font-size: 0.75rem;

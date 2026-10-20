@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSettlementById } from "@/lib/settlements/repository";
-import { getCurrentMemberId } from "@/lib/members/auth";
-import {
-  getClaimRequest,
-  getLatestAuthorization,
-} from "@/lib/members/repository";
-import type { ClaimRequestStatus } from "@/lib/members/types";
+import { loadMemberClaimState } from "@/lib/members/claimState";
 import SettlementCard from "../../case/[id]/SettlementCard";
 
 /**
@@ -39,27 +34,8 @@ export default async function SettlementListingPage({
 
   const currentPath = `/listing/${id}`;
 
-  // Member/claim-filing state is best-effort: a signed-out visitor or a
-  // database hiccup here should still see the listing.
-  let memberId: number | null = null;
-  let hasAuthorized = false;
-  let claimRequestStatus: ClaimRequestStatus | null = null;
-  try {
-    memberId = await getCurrentMemberId();
-    if (memberId) {
-      const [authorization, claimRequest] = await Promise.all([
-        getLatestAuthorization(memberId),
-        getClaimRequest(memberId, settlement.id),
-      ]);
-      hasAuthorized = authorization !== null;
-      claimRequestStatus = claimRequest?.status ?? null;
-    }
-  } catch (error) {
-    console.error(
-      `Failed to load member claim state for settlement ${settlement.id}:`,
-      error,
-    );
-  }
+  const { memberId, hasAuthorized, claimRequestStatusBySettlement } =
+    await loadMemberClaimState([settlement], `settlement ${settlement.id}`);
 
   return (
     <main className="page">
@@ -81,7 +57,7 @@ export default async function SettlementListingPage({
           currentPath={currentPath}
           isSignedIn={memberId !== null}
           hasAuthorized={hasAuthorized}
-          claimRequestStatus={claimRequestStatus}
+          claimRequestStatus={claimRequestStatusBySettlement.get(settlement.id) ?? null}
         />
       </section>
     </main>
