@@ -149,6 +149,21 @@ function normalizeDocketNumber(raw: string): string {
   return `${office}:${year}-${type.toLowerCase()}-${Number(number)}`;
 }
 
+// Same shape normalizeDocketNumber expects ("<office>:<yy>-<type>-<number>"),
+// used to pull a real court case number out of arbitrary page text rather
+// than an exact known string. A settlement administrator's own site
+// commonly discloses this somewhere (home page or FAQ, often as a legally
+// required part of the class notice) even when the lead source that
+// pointed us there didn't supply one structurally - see
+// discoverFromAggregator.ts, which uses this as a last resort before
+// falling back to a much weaker case-name-only search.
+const EMBEDDED_CASE_NUMBER_PATTERN = /\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}/i;
+
+export function extractDocketNumberFromText(text: string): string | null {
+  const match = EMBEDDED_CASE_NUMBER_PATTERN.exec(text);
+  return match ? match[0] : null;
+}
+
 const CASE_NAME_STOPWORDS = new Set([
   "the",
   "and",
@@ -199,7 +214,7 @@ function splitCaption(name: string): [string, string] | null {
   return parts.length === 2 ? [parts[0], parts[1]] : null;
 }
 
-function caseNamesLikelyMatch(a: string, b: string): boolean {
+export function caseNamesLikelyMatch(a: string, b: string): boolean {
   const splitA = splitCaption(a);
   const splitB = splitCaption(b);
   if (splitA && splitB) {
