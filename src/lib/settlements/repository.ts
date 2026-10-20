@@ -14,6 +14,20 @@ export async function getSettlementsForDocket(
   );
 }
 
+/**
+ * A single settlement by its own internal id, regardless of verification
+ * status — used by /listing/[id], the detail page for a settlement that
+ * hasn't (or hasn't yet) been matched to a real court docket and so has
+ * no CourtListener docket id to route a /case/[id] page by.
+ */
+export async function getSettlementById(id: number): Promise<Settlement | null> {
+  const rows = await querySettlements<Settlement>(
+    `SELECT * FROM settlements WHERE id = $1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
 export type ProofFilter = "any" | "required" | "not_required";
 
 /**

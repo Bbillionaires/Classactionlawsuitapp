@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { settlementHref } from "@/lib/settlements/links";
 import type { Settlement } from "@/lib/settlements/types";
 
 type ProofFilter = "any" | "required" | "not_required";
@@ -76,7 +77,7 @@ export default function OpenClaimsSection() {
             <li key={s.id} className="result open-claim-card">
               <div className="result-title">
                 <span className="status-badge status-active">Open</span>
-                <Link href={`/case/${s.courtlistener_docket_id}`}>
+                <Link href={settlementHref(s)}>
                   {s.case_name ?? "Untitled case"}
                 </Link>
               </div>

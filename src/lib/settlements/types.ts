@@ -10,7 +10,11 @@ export type VerificationStatus = "verified" | "probable" | "unverified";
 
 export interface Settlement {
   id: number;
-  courtlistener_docket_id: number;
+  // Null for a settlement listed by a public tracker (Top Class Actions,
+  // classaction.org) that hasn't been independently matched to a real
+  // court docket yet - see worker/src/discoverFromAggregator.ts. Always
+  // paired with verification_status "unverified" when null.
+  courtlistener_docket_id: number | null;
   case_name: string | null;
   docket_number: string | null;
   court_id: string | null;

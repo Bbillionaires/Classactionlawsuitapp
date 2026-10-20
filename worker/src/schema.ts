@@ -15,7 +15,14 @@ export async function ensureSchema(pool: Pool): Promise<void> {
       -- docket record here; CourtListener stays the source of truth for
       -- case-level facts (name, court, parties). This table only holds
       -- settlement-specific facts CourtListener doesn't model.
-      courtlistener_docket_id BIGINT NOT NULL,
+      --
+      -- Nullable: a lead from a public settlement tracker (Top Class
+      -- Actions, classaction.org) is published even when it hasn't been
+      -- cross-referenced to a real docket yet, labeled "unverified" via
+      -- verification_status below - CourtListener confirmation upgrades
+      -- it in place (see worker/src/discoverFromAggregator.ts) rather
+      -- than gating publication on it.
+      courtlistener_docket_id BIGINT,
       case_name TEXT,
       docket_number TEXT,
       court_id TEXT,
@@ -60,6 +67,12 @@ export async function ensureSchema(pool: Pool): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- Was NOT NULL when this table was first created (see the column's own
+    -- comment above for why it no longer is) - DROP NOT NULL is itself
+    -- idempotent in Postgres, a no-op once already applied, so this is
+    -- safe to run on every worker start alongside the CREATE TABLE above.
+    ALTER TABLE settlements ALTER COLUMN courtlistener_docket_id DROP NOT NULL;
+
     CREATE INDEX IF NOT EXISTS idx_settlements_docket
       ON settlements (courtlistener_docket_id);
 
@@ -83,6 +96,12 @@ export async function ensureSchema(pool: Pool): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS idx_settlement_sources_settlement
       ON settlement_sources (settlement_id);
+
+    -- Looked up by the aggregator-lead path to find an existing row for a
+    -- lead it's seen before, by the lead source's own stable URL (stored
+    -- here as snippet) - see findSettlementBySourceIdentifier.
+    CREATE INDEX IF NOT EXISTS idx_settlement_sources_snippet
+      ON settlement_sources (snippet);
 
     CREATE TABLE IF NOT EXISTS worker_runs (
       id BIGSERIAL PRIMARY KEY,

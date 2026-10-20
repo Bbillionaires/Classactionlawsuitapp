@@ -4,14 +4,14 @@ import type { VerificationStatus } from "./extract.js";
 
 export interface SettlementRow {
   id: number;
-  courtlistener_docket_id: number;
+  courtlistener_docket_id: number | null;
   settlement_website_domain: string | null;
   settlement_administrator: string | null;
   confidence_score: number;
 }
 
 export interface SettlementInput {
-  courtlistenerDocketId: number;
+  courtlistenerDocketId: number | null;
   caseName: string | null;
   docketNumber: string | null;
   courtId: string | null;
@@ -35,25 +35,10 @@ export interface SettlementInput {
   proofRequirements?: string | null;
 }
 
-/**
- * Finds an existing settlement row for this docket that this candidate
- * should be merged into, per the dedup signals in the spec (docket +
- * domain, or docket + administrator). Returns null when this looks like
- * a genuinely new settlement for a docket that may already have others.
- */
-export async function findMatchingSettlement(
-  pool: Pool,
-  docketId: number,
+function pickMatch(
+  rows: SettlementRow[],
   candidate: { domain: string | null; administrator: string | null },
-): Promise<SettlementRow | null> {
-  const { rows } = await pool.query<SettlementRow>(
-    `SELECT id, courtlistener_docket_id, settlement_website_domain,
-            settlement_administrator, confidence_score
-     FROM settlements
-     WHERE courtlistener_docket_id = $1
-     ORDER BY id`,
-    [docketId],
-  );
+): SettlementRow | null {
   if (rows.length === 0) return null;
 
   for (const row of rows) {
@@ -87,6 +72,71 @@ export async function findMatchingSettlement(
   }
 
   return null;
+}
+
+/**
+ * Finds an existing settlement row for this docket that this candidate
+ * should be merged into, per the dedup signals in the spec (docket +
+ * domain, or docket + administrator). Returns null when this looks like
+ * a genuinely new settlement for a docket that may already have others,
+ * or when there's no docket at all yet to scope the search by (see
+ * findSettlementByUrl below for that case instead).
+ *
+ * Deliberately scoped to rows sharing this exact docket - domain and
+ * administrator are only ever used as tie-breakers *among* those, never
+ * as a standalone lookup key on their own. A settlement-administrator
+ * domain (kccllc.com, epiqsystems.com, etc.) routinely hosts hundreds of
+ * unrelated settlements for completely different cases, so matching on
+ * domain alone, table-wide, would merge them into one row.
+ */
+export async function findMatchingSettlement(
+  pool: Pool,
+  docketId: number | null,
+  candidate: { domain: string | null; administrator: string | null },
+): Promise<SettlementRow | null> {
+  if (docketId === null) return null;
+  const { rows } = await pool.query<SettlementRow>(
+    `SELECT id, courtlistener_docket_id, settlement_website_domain,
+            settlement_administrator, confidence_score
+     FROM settlements
+     WHERE courtlistener_docket_id = $1
+     ORDER BY id`,
+    [docketId],
+  );
+  return pickMatch(rows, candidate);
+}
+
+/**
+ * Finds an existing settlement row by the lead source's own stable
+ * identifier (the tracker's own listing/detail-page URL - e.g. TCA's
+ * article URL, or classaction.org's `#slug` anchor - recorded as
+ * settlement_sources.snippet by discoverFromAggregator.ts's recordSource
+ * call) - used only by that path. This is a far stronger identity key
+ * than either domain (a shared administrator domain like kccllc.com hosts
+ * hundreds of unrelated settlements) or the *official* settlement site
+ * URL a lead resolves to (which a source's own page can in principle
+ * expose differently between scrapes - a settlement-website field that
+ * appears on one pass and not the next would otherwise silently break the
+ * link to the existing row and create a duplicate). Works whether or not
+ * a docket has been matched yet, which is what lets a lead first
+ * published "unverified" (no docket match) upgrade its own row in place
+ * once a later run does find one, instead of spawning a duplicate.
+ */
+export async function findSettlementBySourceIdentifier(
+  pool: Pool,
+  sourceIdentifier: string,
+): Promise<SettlementRow | null> {
+  const { rows } = await pool.query<SettlementRow>(
+    `SELECT s.id, s.courtlistener_docket_id, s.settlement_website_domain,
+            s.settlement_administrator, s.confidence_score
+     FROM settlement_sources ss
+     JOIN settlements s ON s.id = ss.settlement_id
+     WHERE ss.snippet = $1
+     ORDER BY ss.discovered_at DESC
+     LIMIT 1`,
+    [sourceIdentifier],
+  );
+  return rows[0] ?? null;
 }
 
 /**
@@ -142,6 +192,7 @@ export async function upsertSettlement(
   if (input.confidenceScore >= existing.confidence_score) {
     await pool.query(
       `UPDATE settlements SET
+        courtlistener_docket_id = COALESCE($20, courtlistener_docket_id),
         case_name = COALESCE($2, case_name),
         docket_number = COALESCE($3, docket_number),
         court_id = COALESCE($4, court_id),
@@ -183,6 +234,7 @@ export async function upsertSettlement(
         input.verificationStatus,
         input.verificationSource,
         input.confidenceScore,
+        input.courtlistenerDocketId,
       ],
     );
   } else {
