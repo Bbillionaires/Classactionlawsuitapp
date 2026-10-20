@@ -7,6 +7,7 @@ import {
   listDocumentsForMember,
 } from "@/lib/members/repository";
 import { getSettlementsByIds } from "@/lib/settlements/repository";
+import { settlementHref } from "@/lib/settlements/links";
 import DocumentUploadForm from "../components/DocumentUploadForm";
 import LogoutButton from "../components/LogoutButton";
 
@@ -97,7 +98,7 @@ export default async function AccountPage() {
               return (
                 <li key={request.id} className="claim-request-item">
                   {settlement ? (
-                    <Link href={`/case/${settlement.courtlistener_docket_id}`}>
+                    <Link href={settlementHref(settlement)}>
                       {settlement.case_name ?? `Settlement #${request.settlement_id}`}
                     </Link>
                   ) : (

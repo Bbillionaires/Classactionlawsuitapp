@@ -8,7 +8,7 @@ import {
 } from "./courtlistener.js";
 import { isKnownAdministratorDomain, isBoilerplateDomain } from "./keywords.js";
 import { deriveStatusAndStage } from "./status.js";
-import { findMatchingSettlement, upsertSettlement, recordSource } from "./repository.js";
+import { findSettlementBySourceIdentifier, upsertSettlement, recordSource } from "./repository.js";
 import { DATE_PATTERN, parseDateToken } from "./dates.js";
 import type { RunStats } from "./discover.js";
 
@@ -88,16 +88,23 @@ function isNoProofNeeded(text: string | null): boolean {
 
 /**
  * Secondary discovery path: public settlement-tracking sites (Top Class
- * Actions, classaction.org) as LEAD sources only. Every fact this finds
- * still goes through the same verification model as the CourtListener-text
- * path — a lead's own official-site domain only earns "verified" if it's
- * on the known-administrator allowlist; otherwise it's "probable" with the
- * source disclosed plainly, exactly like any other unverified find. We
- * never treat a lead source's own description as ground truth — we
- * cross-reference the case against CourtListener's own docket index
- * (public even when documents are paywalled) so every published
- * settlement still links to a real docket, and we skip any lead we can't
- * match to one rather than inventing a case page for it.
+ * Actions, classaction.org) as LEAD sources. Every lead is still
+ * independently cross-referenced against CourtListener's own docket index
+ * (public even when documents are paywalled) before being labeled
+ * anything but "unverified" — we never treat a lead source's own
+ * description as confirmed fact.
+ *
+ * Unlike this worker's other discovery paths, a failed or inconclusive
+ * docket match no longer drops the lead: the settlement is still
+ * published, honestly labeled "unverified" (clearly disclosed on its page,
+ * see SettlementCard.tsx), since the tracker listing it is itself real
+ * signal even without court-record confirmation — at the project owner's
+ * explicit direction, given CourtListener's shared rate limit and these
+ * trackers' own marketing-style naming mean a lot of genuine settlements
+ * would otherwise never match. A docket match still earns "verified" or
+ * "probable" (domain-allowlist-dependent) exactly as before, and a later
+ * run that DOES find one upgrades an already-published unverified
+ * settlement in place rather than publishing a duplicate.
  */
 export async function runAggregatorDiscovery(
   pool: Pool,
@@ -154,30 +161,48 @@ export async function runAggregatorDiscovery(
         ? null
         : await tryExtractDocketNumberFromOfficialSite(officialUrl);
 
-      const docket = await findDocketByCaseIdentifier({
+      let docket = await findDocketByCaseIdentifier({
         docketNumber: leadDocketNumber ?? extractedDocketNumber,
         caseName: lead.caseName,
       });
-      // Can't route to a /case/[id] page without a real docket match — skip
-      // rather than invent one. This is the honest limit of "lead source,
-      // independently cross-referenced."
-      if (!docket) continue;
       if (
+        docket &&
         extractedDocketNumber &&
         !caseNamesLikelyMatch(docket.caseName, lead.caseName ?? "")
       ) {
-        continue;
+        // Not trustworthy enough on its own - see the comment above. Falls
+        // through to the unverified branch below rather than being
+        // dropped outright: the site still listed a real settlement, we
+        // just couldn't independently confirm which court case it is.
+        docket = null;
       }
-
-      stats.docketsScanned += 1;
+      if (docket) stats.docketsScanned += 1;
       stats.candidatesFound += 1;
 
       const isKnown = isKnownAdministratorDomain(domain);
-      const verificationStatus = isKnown ? "verified" : "probable";
-      const confidenceScore = isKnown ? 80 : 50;
-      const verificationSource = isKnown
-        ? "known settlement administrator domain (found via public settlement tracker)"
-        : "found via public settlement tracker, matched to a real CourtListener docket — domain not independently recognized, verify before filing";
+      let verificationStatus: "verified" | "probable" | "unverified";
+      let confidenceScore: number;
+      let verificationSource: string;
+      if (docket) {
+        verificationStatus = isKnown ? "verified" : "probable";
+        confidenceScore = isKnown ? 80 : 50;
+        verificationSource = isKnown
+          ? "known settlement administrator domain (found via public settlement tracker)"
+          : "found via public settlement tracker, matched to a real CourtListener docket — domain not independently recognized, verify before filing";
+      } else {
+        // Published anyway, at the user's request: a settlement tracker
+        // listing it is itself real signal, even without an independent
+        // court-record match (CourtListener's shared rate limit and these
+        // trackers' own marketing-style naming mean a lot of genuine
+        // settlements won't match on a given run, or ever). A later run
+        // can still upgrade this exact row to verified/probable once a
+        // docket is found - see findSettlementByUrl below, which finds
+        // this same row again by its URL regardless of docket match.
+        verificationStatus = "unverified";
+        confidenceScore = isKnown ? 30 : 15;
+        verificationSource =
+          "listed by a public settlement tracker — not yet matched to a court record, verify independently before filing";
+      }
 
       const claimDeadline = parseUsDate(lead.exclusionDeadline);
       const finalApprovalHearingDate = parseUsDate(lead.finalHearingDate);
@@ -187,21 +212,30 @@ export async function runAggregatorDiscovery(
         finalApprovalDate: finalApprovalHearingDate,
       });
 
-      const existing = await findMatchingSettlement(pool, docket.docket_id, {
-        domain,
-        administrator: lead.administratorText,
-      });
+      // Deduped by the lead's own stable source identifier (pending.
+      // identifier - the tracker's own listing URL), not domain/
+      // administrator or the resolved official site URL: a shared
+      // settlement-administrator domain can host hundreds of unrelated
+      // settlements, and the official URL a source exposes for the same
+      // lead could in principle vary between scrapes. This path never
+      // uses the docket-scoped findMatchingSettlement other discovery
+      // paths use (there may be no docket at all yet). The same row is
+      // found whether this is a re-seen lead that's still unverified or
+      // one that's finally resolved to a real docket this run -
+      // upsertSettlement below then naturally upgrades it in place
+      // either way.
+      const existing = await findSettlementBySourceIdentifier(pool, pending.identifier);
 
       const settlementId = await upsertSettlement(pool, existing, {
-        courtlistenerDocketId: docket.docket_id,
-        caseName: lead.caseName ?? docket.caseName,
+        courtlistenerDocketId: docket?.docket_id ?? null,
+        caseName: lead.caseName ?? docket?.caseName ?? null,
         // Prefer the matched docket's own (verified) number over whatever
         // we searched with - important for extractedDocketNumber, which
         // could in principle differ from the real docket's number if the
         // match actually came through the case-name fallback rather than
         // the number itself.
-        docketNumber: docket.docketNumber ?? leadDocketNumber ?? extractedDocketNumber,
-        courtId: docket.court_id,
+        docketNumber: docket?.docketNumber ?? leadDocketNumber ?? extractedDocketNumber,
+        courtId: docket?.court_id ?? null,
         settlementWebsiteUrl: officialUrl,
         settlementWebsiteDomain: domain,
         settlementAdministrator: lead.administratorText,

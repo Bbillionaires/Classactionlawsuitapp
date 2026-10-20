@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listOpenSettlements } from "@/lib/settlements/repository";
+import { settlementHref } from "@/lib/settlements/links";
 import type { Settlement } from "@/lib/settlements/types";
 
 const PROMO_MESSAGES = [
@@ -63,7 +64,7 @@ export default async function OpenClaimsTicker() {
   const items = settlements.map((s) => (
     <Link
       key={s.id}
-      href={`/case/${s.courtlistener_docket_id}`}
+      href={settlementHref(s)}
       className="ticker-item"
     >
       🟢 OPEN — {s.case_name ?? "Untitled case"}
