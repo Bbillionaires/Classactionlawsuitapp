@@ -22,6 +22,29 @@ async function main(): Promise<void> {
     // Two independent discovery paths, each allowed to fail without taking
     // the other down with it — a rate-limit hiccup on one shouldn't zero
     // out real results the other path already found this run.
+    //
+    // Aggregator-lead runs first, not CourtListener text search: both
+    // share the same 5 req/min CourtListener budget, and running text
+    // search first was letting it spend most of that budget before the
+    // lead path got a turn, so a lead's docket cross-reference call
+    // landed on an already-exhausted budget on almost every run (see
+    // searchFirstDocket's now-fixed silent-null-on-429 bug). The lead
+    // path is also the higher-value one per this project's own findings
+    // — text search's yield is low by design, which is exactly why the
+    // lead path exists — so it gets priority for the budget.
+    console.log("[worker] starting aggregator-lead discovery run...");
+    try {
+      const leadErrors = await runAggregatorDiscovery(pool, stats);
+      // Pushed one per failed lead (not joined into one string) so the
+      // exit-code check below, which inspects each entry individually,
+      // still correctly flips to a real failure if even one of several
+      // concurrent lead failures wasn't actually rate-limiting.
+      for (const leadError of leadErrors) errors.push(`Aggregator: ${leadError}`);
+    } catch (err) {
+      console.error("[worker] aggregator discovery failed:", err);
+      errors.push(`Aggregator: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
     console.log("[worker] starting CourtListener discovery run...");
     try {
       const clStats = await runDiscovery(pool);
@@ -32,14 +55,6 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error("[worker] CourtListener discovery failed:", err);
       errors.push(`CourtListener: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    console.log("[worker] starting aggregator-lead discovery run...");
-    try {
-      await runAggregatorDiscovery(pool, stats);
-    } catch (err) {
-      console.error("[worker] aggregator discovery failed:", err);
-      errors.push(`Aggregator: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     console.log("[worker] checking saved searches for alertable matches...");

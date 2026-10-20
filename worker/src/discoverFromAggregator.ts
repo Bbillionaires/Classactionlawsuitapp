@@ -37,93 +37,103 @@ function isNoProofNeeded(text: string | null): boolean {
 export async function runAggregatorDiscovery(
   pool: Pool,
   stats: RunStats,
-): Promise<void> {
+): Promise<string[]> {
   const leadUrls = await fetchOpenSettlementLeadUrls(AGGREGATOR_LEADS_PER_RUN);
+  // Collected (not just console.error'd) so a run where every lead fails -
+  // e.g. the shared CourtListener budget being exhausted - shows up in the
+  // stored worker_runs record that monitoring actually looks at, not just
+  // in ephemeral process logs. See index.ts, which folds these into the
+  // same `errors` list the other discovery paths report through.
+  const leadErrors: string[] = [];
 
   for (const leadUrl of leadUrls) {
-    let lead;
+    // Same spirit as discover.ts's per-docket isolation: one lead failing
+    // (a CourtListener rate-limit hit on the docket cross-reference, a
+    // parse error, whatever) must not abort the rest of this run's leads.
     try {
-      lead = await fetchLeadDetails(leadUrl);
+      const lead = await fetchLeadDetails(leadUrl);
+      if (!lead) continue;
+
+      const officialUrl = lead.settlementWebsiteUrl ?? lead.claimFormUrl;
+      if (!officialUrl) continue; // nothing to verify or link to
+
+      let domain: string;
+      try {
+        domain = new URL(officialUrl).hostname.toLowerCase();
+      } catch {
+        continue;
+      }
+      if (isBoilerplateDomain(domain)) continue;
+
+      const docket = await findDocketByCaseIdentifier({
+        docketNumber: lead.docketNumber,
+        caseName: lead.caseName,
+      });
+      // Can't route to a /case/[id] page without a real docket match — skip
+      // rather than invent one. This is the honest limit of "lead source,
+      // independently cross-referenced."
+      if (!docket) continue;
+
+      stats.docketsScanned += 1;
+      stats.candidatesFound += 1;
+
+      const isKnown = isKnownAdministratorDomain(domain);
+      const verificationStatus = isKnown ? "verified" : "probable";
+      const confidenceScore = isKnown ? 80 : 50;
+      const verificationSource = isKnown
+        ? "known settlement administrator domain (found via public settlement tracker)"
+        : "found via public settlement tracker, matched to a real CourtListener docket — domain not independently recognized, verify before filing";
+
+      const claimDeadline = parseUsDate(lead.exclusionDeadline);
+      const finalApprovalHearingDate = parseUsDate(lead.finalHearingDate);
+      const { status, stage } = deriveStatusAndStage({
+        hasWebsite: true,
+        claimDeadline,
+        finalApprovalDate: finalApprovalHearingDate,
+      });
+
+      const existing = await findMatchingSettlement(pool, docket.docket_id, {
+        domain,
+        administrator: lead.administratorText,
+      });
+
+      const settlementId = await upsertSettlement(pool, existing, {
+        courtlistenerDocketId: docket.docket_id,
+        caseName: lead.caseName ?? docket.caseName,
+        docketNumber: lead.docketNumber ?? docket.docketNumber,
+        courtId: docket.court_id,
+        settlementWebsiteUrl: officialUrl,
+        settlementWebsiteDomain: domain,
+        settlementAdministrator: lead.administratorText,
+        claimFormUrl: lead.claimFormUrl,
+        settlementAmount: lead.potentialAward,
+        estimatedAward: lead.potentialAward,
+        claimDeadline,
+        finalApprovalHearingDate,
+        classDefinition: lead.classDefinition,
+        proofRequirements: isNoProofNeeded(lead.proofRequired) ? null : lead.proofRequired,
+        status,
+        stage,
+        verificationStatus,
+        verificationSource,
+        confidenceScore,
+      });
+
+      if (existing) stats.settlementsUpdated += 1;
+      else stats.settlementsCreated += 1;
+
+      await recordSource(pool, settlementId, {
+        extractedField: "settlement_website_url",
+        extractedValue: officialUrl,
+        courtlistenerDocketEntryId: null,
+        matchedKeyword: `aggregator lead: ${lead.title ?? leadUrl}`,
+        snippet: leadUrl,
+      });
     } catch (err) {
-      console.error(`[aggregator] failed to fetch lead ${leadUrl}:`, err);
-      continue;
+      console.error(`[aggregator] failed to process lead ${leadUrl}:`, err);
+      leadErrors.push(err instanceof Error ? err.message : String(err));
     }
-    if (!lead) continue;
-
-    const officialUrl = lead.settlementWebsiteUrl ?? lead.claimFormUrl;
-    if (!officialUrl) continue; // nothing to verify or link to
-
-    let domain: string;
-    try {
-      domain = new URL(officialUrl).hostname.toLowerCase();
-    } catch {
-      continue;
-    }
-    if (isBoilerplateDomain(domain)) continue;
-
-    const docket = await findDocketByCaseIdentifier({
-      docketNumber: lead.docketNumber,
-      caseName: lead.caseName,
-    });
-    // Can't route to a /case/[id] page without a real docket match — skip
-    // rather than invent one. This is the honest limit of "lead source,
-    // independently cross-referenced."
-    if (!docket) continue;
-
-    stats.docketsScanned += 1;
-    stats.candidatesFound += 1;
-
-    const isKnown = isKnownAdministratorDomain(domain);
-    const verificationStatus = isKnown ? "verified" : "probable";
-    const confidenceScore = isKnown ? 80 : 50;
-    const verificationSource = isKnown
-      ? "known settlement administrator domain (found via public settlement tracker)"
-      : "found via public settlement tracker, matched to a real CourtListener docket — domain not independently recognized, verify before filing";
-
-    const claimDeadline = parseUsDate(lead.exclusionDeadline);
-    const finalApprovalHearingDate = parseUsDate(lead.finalHearingDate);
-    const { status, stage } = deriveStatusAndStage({
-      hasWebsite: true,
-      claimDeadline,
-      finalApprovalDate: finalApprovalHearingDate,
-    });
-
-    const existing = await findMatchingSettlement(pool, docket.docket_id, {
-      domain,
-      administrator: lead.administratorText,
-    });
-
-    const settlementId = await upsertSettlement(pool, existing, {
-      courtlistenerDocketId: docket.docket_id,
-      caseName: lead.caseName ?? docket.caseName,
-      docketNumber: lead.docketNumber ?? docket.docketNumber,
-      courtId: docket.court_id,
-      settlementWebsiteUrl: officialUrl,
-      settlementWebsiteDomain: domain,
-      settlementAdministrator: lead.administratorText,
-      claimFormUrl: lead.claimFormUrl,
-      settlementAmount: lead.potentialAward,
-      estimatedAward: lead.potentialAward,
-      claimDeadline,
-      finalApprovalHearingDate,
-      classDefinition: lead.classDefinition,
-      proofRequirements: isNoProofNeeded(lead.proofRequired) ? null : lead.proofRequired,
-      status,
-      stage,
-      verificationStatus,
-      verificationSource,
-      confidenceScore,
-    });
-
-    if (existing) stats.settlementsUpdated += 1;
-    else stats.settlementsCreated += 1;
-
-    await recordSource(pool, settlementId, {
-      extractedField: "settlement_website_url",
-      extractedValue: officialUrl,
-      courtlistenerDocketEntryId: null,
-      matchedKeyword: `aggregator lead: ${lead.title ?? leadUrl}`,
-      snippet: leadUrl,
-    });
   }
+
+  return leadErrors;
 }
