@@ -3,7 +3,7 @@ import { ensureSchema } from "./schema.js";
 import { runDiscovery, type RunStats } from "./discover.js";
 import { runAggregatorDiscovery } from "./discoverFromAggregator.js";
 import { runSavedSearchAlerts } from "./savedSearchAlerts.js";
-import { recordWorkerRun } from "./repository.js";
+import { recordWorkerRun, mergeDuplicateSettlements } from "./repository.js";
 
 async function main(): Promise<void> {
   try {
@@ -18,6 +18,16 @@ async function main(): Promise<void> {
       settlementsUpdated: 0,
     };
     const errors: string[] = [];
+
+    try {
+      const merged = await mergeDuplicateSettlements(pool);
+      if (merged > 0) {
+        console.log(`[worker] merged ${merged} duplicate settlement row(s)`);
+      }
+    } catch (err) {
+      console.error("[worker] duplicate-settlement merge failed:", err);
+      errors.push(`Dedupe: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     // Two independent discovery paths, each allowed to fail without taking
     // the other down with it — a rate-limit hiccup on one shouldn't zero
