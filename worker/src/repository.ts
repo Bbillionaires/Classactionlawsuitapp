@@ -246,6 +246,202 @@ export async function upsertSettlement(
   return existing.id;
 }
 
+// Every descriptive field worth preserving from a duplicate before it's
+// deleted - courtlistener_docket_id and the identity columns (case_name,
+// settlement_website_domain) are deliberately excluded: the keeper's own
+// docket id is left as-is rather than silently repointing the surviving
+// row at a different real docket.
+const MERGEABLE_FIELDS = [
+  "docket_number",
+  "court_id",
+  "settlement_administrator",
+  "settlement_website_url",
+  "claim_form_url",
+  "settlement_amount",
+  "estimated_award",
+  "claim_deadline",
+  "objection_deadline",
+  "opt_out_deadline",
+  "final_approval_hearing_date",
+  "preliminary_approval_date",
+  "final_approval_date",
+  "class_definition",
+  "proof_requirements",
+] as const;
+
+interface MergeableSettlementRow {
+  id: number;
+  docket_number: string | null;
+  court_id: string | null;
+  settlement_administrator: string | null;
+  settlement_website_url: string | null;
+  claim_form_url: string | null;
+  settlement_amount: string | null;
+  estimated_award: string | null;
+  claim_deadline: string | null;
+  objection_deadline: string | null;
+  opt_out_deadline: string | null;
+  final_approval_hearing_date: string | null;
+  preliminary_approval_date: string | null;
+  final_approval_date: string | null;
+  class_definition: string | null;
+  proof_requirements: string | null;
+}
+
+interface ClaimRequestRow {
+  id: number;
+  member_id: number;
+  settlement_id: number;
+  created_at: string;
+}
+
+/**
+ * Merges duplicate settlement rows left over from before the
+ * aggregator-lead path deduped leads by their own stable source URL (see
+ * findSettlementBySourceIdentifier) - it used to dedupe by docket id
+ * alone, so the same real settlement resolving to two *different*
+ * CourtListener dockets on separate runs (common for multi-district
+ * litigation, where several member-case dockets can share one
+ * settlement) created two separate rows instead of updating one. Safe to
+ * run on every worker start: idempotent, and a no-op once nothing is left
+ * to merge.
+ *
+ * Also an ongoing safety net, not a true one-time fix: the CourtListener
+ * text-search discovery path (discover.ts) still dedupes strictly by
+ * exact docket id, so rediscovering a *different* member-case docket for
+ * an already-merged settlement can still create a fresh duplicate later.
+ * This pass will simply merge it again on its next run - acceptable since
+ * the merge itself no longer loses data (see below), unlike leaving the
+ * duplicate-creation possible at the source, which would need discover.ts
+ * to gain the same lead-identity-based dedup the aggregator path has, a
+ * larger change out of scope here.
+ *
+ * Groups by (case_name, settlement_website_domain) - two genuinely
+ * different settlements sharing both an exact case name and exact
+ * official-site domain is not a realistic coincidence in the duplicates
+ * actually observed in production, unlike domain alone (see the review
+ * finding in PR #11 that ruled domain-only matching out for this exact
+ * reason). It's possible in principle for one umbrella multi-district
+ * litigation to run two genuinely distinct settlement tracks under a
+ * shared docket caption and a shared central administrator site, which
+ * would wrongly merge them - a residual, intentionally accepted risk,
+ * mitigated by the fact that merging now preserves every duplicate's own
+ * descriptive data onto the keeper (next) rather than discarding it, so
+ * even a wrong merge loses no information, just consolidates display.
+ *
+ * `claim_requests` has no FK to `settlements` (deliberately - see
+ * src/lib/members/schema.ts) but shares the same database, so a
+ * duplicate's settlement_sources and any member's claim_requests are
+ * reassigned to the kept row before the duplicate is deleted, rather than
+ * left dangling or silently losing a member's filing history. A member
+ * who already has requests against more than one row in the same group
+ * (the one case this could violate claim_requests' own
+ * (member_id, settlement_id) uniqueness constraint) keeps exactly one of
+ * them, consolidated onto the keeper, rather than attempting to point two
+ * rows at the same (member, settlement) pair.
+ */
+export async function mergeDuplicateSettlements(pool: Pool): Promise<number> {
+  const { rows: groups } = await pool.query<{ ids: number[] }>(
+    `SELECT array_agg(id ORDER BY confidence_score DESC, last_verified_at DESC NULLS LAST, id) AS ids
+     FROM settlements
+     WHERE case_name IS NOT NULL AND settlement_website_domain IS NOT NULL
+     GROUP BY case_name, settlement_website_domain
+     HAVING COUNT(*) > 1`,
+  );
+
+  let mergedCount = 0;
+  for (const group of groups) {
+    const [keeperId, ...duplicateIds] = group.ids;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Fill any gap in the keeper's own descriptive fields from whichever
+      // duplicate (in keeper-selection order, i.e. highest confidence
+      // first) has a value, rather than just discarding whatever the
+      // duplicates knew that the keeper didn't.
+      const { rows: groupRows } = await client.query<MergeableSettlementRow>(
+        `SELECT id, ${MERGEABLE_FIELDS.join(", ")} FROM settlements WHERE id = ANY($1::bigint[])`,
+        [group.ids],
+      );
+      const rowsById = new Map(groupRows.map((row) => [row.id, row]));
+      const orderedRows = group.ids.map((id) => rowsById.get(id)).filter((row) => row != null);
+      const mergedValues: Record<string, unknown> = {};
+      for (const field of MERGEABLE_FIELDS) {
+        for (const row of orderedRows) {
+          if (row[field] != null) {
+            mergedValues[field] = row[field];
+            break;
+          }
+        }
+      }
+      const setClauses = MERGEABLE_FIELDS.map((field, i) => `${field} = $${i + 2}`).join(", ");
+      await client.query(
+        `UPDATE settlements SET ${setClauses}, updated_at = now() WHERE id = $1`,
+        [keeperId, ...MERGEABLE_FIELDS.map((field) => mergedValues[field] ?? null)],
+      );
+
+      await client.query(
+        `UPDATE settlement_sources SET settlement_id = $1 WHERE settlement_id = ANY($2::bigint[])`,
+        [keeperId, duplicateIds],
+      );
+
+      // A member can have at most one claim_requests row per settlement
+      // id (the UNIQUE constraint) but could already have one against
+      // more than one row in this group - reassigning each individually
+      // (rather than one blanket UPDATE) lets each member end up with
+      // exactly one, consolidated onto the keeper, instead of risking two
+      // reassignments landing on the same (member, keeper) pair at once.
+      const { rows: claimRequestRows } = await client.query<ClaimRequestRow>(
+        `SELECT id, member_id, settlement_id, created_at FROM claim_requests WHERE settlement_id = ANY($1::bigint[])`,
+        [group.ids],
+      );
+      const claimRequestsByMember = new Map<number, ClaimRequestRow[]>();
+      for (const row of claimRequestRows) {
+        const forMember = claimRequestsByMember.get(row.member_id) ?? [];
+        forMember.push(row);
+        claimRequestsByMember.set(row.member_id, forMember);
+      }
+      for (const memberRows of claimRequestsByMember.values()) {
+        // Prefer a request already on the keeper, if any; otherwise the
+        // member's original request (earliest) - which exact one barely
+        // matters since every row in this group represents the same
+        // real-world settlement, but something concrete has to be chosen.
+        const keepRow =
+          memberRows.find((row) => row.settlement_id === keeperId) ??
+          [...memberRows].sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+        if (keepRow.settlement_id !== keeperId) {
+          await client.query(`UPDATE claim_requests SET settlement_id = $1 WHERE id = $2`, [
+            keeperId,
+            keepRow.id,
+          ]);
+        }
+        const redundantIds = memberRows
+          .filter((row) => row.id !== keepRow.id)
+          .map((row) => row.id);
+        if (redundantIds.length > 0) {
+          await client.query(`DELETE FROM claim_requests WHERE id = ANY($1::bigint[])`, [
+            redundantIds,
+          ]);
+        }
+      }
+
+      await client.query(`DELETE FROM settlements WHERE id = ANY($1::bigint[])`, [duplicateIds]);
+      await client.query("COMMIT");
+      mergedCount += duplicateIds.length;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error(
+        `[dedupe] failed to merge duplicate settlements ${JSON.stringify(group.ids)}:`,
+        err,
+      );
+    } finally {
+      client.release();
+    }
+  }
+  return mergedCount;
+}
+
 export async function recordSource(
   pool: Pool,
   settlementId: number,
