@@ -1,3 +1,5 @@
+import dns from "node:dns/promises";
+import net from "node:net";
 import type { Pool } from "pg";
 import { fetchOpenSettlementLeadUrls, fetchLeadDetails, type AggregatorLead } from "./aggregator.js";
 import { fetchClassActionOrgLeads } from "./classActionOrgSource.js";
@@ -38,6 +40,63 @@ async function resolveLead(pending: PendingLead): Promise<AggregatorLead | null>
 }
 
 /**
+ * True if `ip` falls in a loopback, link-local (this covers the
+ * 169.254.169.254 cloud metadata address every major provider uses), or
+ * RFC1918 private range. Deliberately fails closed on anything it can't
+ * parse as plain IPv4/IPv6, since this gates an outbound fetch.
+ */
+function isPrivateOrReservedIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local + cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 0) return true; // 0.0.0.0/8
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    const normalized = ip.toLowerCase();
+    if (normalized === "::1") return true; // loopback
+    if (normalized.startsWith("fe80:")) return true; // link-local
+    if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
+    const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isPrivateOrReservedIp(mapped[1]);
+    return false;
+  }
+  return true; // unparseable - fail closed
+}
+
+/**
+ * Resolves `urlString`'s hostname and rejects anything that isn't a
+ * plain, public http(s) address. This fetch's target comes from a
+ * third-party lead source's own scraped content (TCA's or
+ * classaction.org's listing fields), not a value this app controls, so
+ * without this check a single malicious or compromised listing could
+ * redirect the worker's own outbound fetch at cloud metadata endpoints or
+ * other internal-only services.
+ */
+async function isSafeExternalUrl(urlString: string): Promise<boolean> {
+  let url: URL;
+  try {
+    url = new URL(urlString);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === "localhost") return false;
+  try {
+    const { address } = await dns.lookup(hostname);
+    if (isPrivateOrReservedIp(address)) return false;
+  } catch {
+    return false; // can't resolve - fail closed rather than let fetch try anyway
+  }
+  return true;
+}
+
+/**
  * Settlement-administrator sites commonly disclose the underlying court
  * case number somewhere on their own page (often required as part of the
  * class notice) even when the lead source that pointed us here didn't
@@ -58,16 +117,27 @@ async function resolveLead(pending: PendingLead): Promise<AggregatorLead | null>
 async function tryExtractDocketNumberFromOfficialSite(
   url: string,
 ): Promise<string | null> {
+  if (!(await isSafeExternalUrl(url))) return null;
   try {
     const response = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
       },
+      // Never follow a redirect into an unvalidated host - a public URL
+      // that 302s to an internal address would otherwise bypass the
+      // isSafeExternalUrl check above entirely. Losing the rare
+      // legitimate redirect is an acceptable cost for what's already
+      // just a best-effort heuristic.
+      redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return null;
-    return extractDocketNumberFromText(await response.text());
+    const body = await response.text();
+    // Cap how much we scan - this is still untrusted third-party
+    // content and extractDocketNumberFromText only ever needs to look
+    // at a small prefix of the page.
+    return extractDocketNumberFromText(body.slice(0, 500_000));
   } catch {
     return null;
   }
