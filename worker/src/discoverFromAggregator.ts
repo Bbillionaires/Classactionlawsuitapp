@@ -1,4 +1,6 @@
-import dns from "node:dns/promises";
+import dns from "node:dns";
+import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 import type { Pool } from "pg";
 import { fetchOpenSettlementLeadUrls, fetchLeadDetails, type AggregatorLead } from "./aggregator.js";
@@ -7,6 +9,7 @@ import {
   findDocketByCaseIdentifier,
   extractDocketNumberFromText,
   caseNamesLikelyMatch,
+  type RecapDocket,
 } from "./courtlistener.js";
 import { isKnownAdministratorDomain, isBoilerplateDomain } from "./keywords.js";
 import { deriveStatusAndStage } from "./status.js";
@@ -68,32 +71,123 @@ function isPrivateOrReservedIp(ip: string): boolean {
   return true; // unparseable - fail closed
 }
 
+const FETCH_TIMEOUT_MS = 10_000;
+// Cap how much we read - this is untrusted third-party content and
+// extractDocketNumberFromText only ever needs a small prefix of the page.
+const MAX_RESPONSE_BYTES = 500_000;
+
 /**
- * Resolves `urlString`'s hostname and rejects anything that isn't a
- * plain, public http(s) address. This fetch's target comes from a
- * third-party lead source's own scraped content (TCA's or
- * classaction.org's listing fields), not a value this app controls, so
- * without this check a single malicious or compromised listing could
- * redirect the worker's own outbound fetch at cloud metadata endpoints or
- * other internal-only services.
+ * A `dns.lookup`-shaped resolver that rejects any hostname resolving to a
+ * loopback/link-local/RFC1918 address (this covers the common cloud
+ * metadata address, 169.254.169.254) before returning it. Passed as the
+ * `lookup` option to http(s).request below so the SAME resolution that's
+ * validated is the one actually used to open the TCP connection - using a
+ * separate check-then-connect pair of lookups (e.g. one `dns.lookup` call
+ * to validate, a second independent one inside `fetch()` to connect) would
+ * leave a DNS-rebinding gap: an attacker-controlled hostname with a
+ * near-zero TTL could resolve to a public address for the check and to an
+ * internal one by the time the connection itself is made.
  */
-async function isSafeExternalUrl(urlString: string): Promise<boolean> {
+function validatingLookup(
+  hostname: string,
+  options: dns.LookupOptions,
+  callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+): void {
+  // Force single-address resolution regardless of what http(s)'s
+  // internals asked for in `options.all` - this callback shape only
+  // accepts one address, and a single address is also exactly what
+  // http(s) actually uses to open its one TCP connection.
+  dns.lookup(hostname, { family: options.family }, (err, address, family) => {
+    if (err) {
+      callback(err, address, family);
+      return;
+    }
+    if (isPrivateOrReservedIp(address)) {
+      callback(
+        new Error(`Refusing to connect to private/reserved address ${address}`) as NodeJS.ErrnoException,
+        address,
+        family,
+      );
+      return;
+    }
+    callback(null, address, family);
+  });
+}
+
+/**
+ * Fetches `urlString` with the resolved address pinned via
+ * validatingLookup above, so the whole request fails closed rather than
+ * ever reaching a private/internal target. This fetch's target comes from
+ * a third-party lead source's own scraped content (TCA's or
+ * classaction.org's listing fields), not a value this app controls, so
+ * without this a single malicious or compromised listing could point the
+ * worker's own outbound fetch at cloud metadata endpoints or other
+ * internal-only services.
+ */
+function fetchExternalText(urlString: string): Promise<string | null> {
   let url: URL;
   try {
     url = new URL(urlString);
   } catch {
-    return false;
+    return Promise.resolve(null);
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return Promise.resolve(null);
+  }
   const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost") return false;
-  try {
-    const { address } = await dns.lookup(hostname);
-    if (isPrivateOrReservedIp(address)) return false;
-  } catch {
-    return false; // can't resolve - fail closed rather than let fetch try anyway
+  if (hostname === "localhost") return Promise.resolve(null);
+  // When the URL's host is already a literal IP address, Node's
+  // connection logic skips DNS resolution entirely - the `lookup` option
+  // below is simply never invoked - so validatingLookup alone would let a
+  // literal-IP SSRF payload (e.g. http://169.254.169.254/...) straight
+  // through. Must be checked explicitly, before ever issuing the request.
+  if (net.isIP(hostname) && isPrivateOrReservedIp(hostname)) {
+    return Promise.resolve(null);
   }
-  return true;
+
+  const client = url.protocol === "https:" ? https : http;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const req = client.get(
+      url,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        },
+        lookup: validatingLookup,
+        timeout: FETCH_TIMEOUT_MS,
+      },
+      (res) => {
+        // Any redirect is treated as a failure, never followed - a
+        // redirect target hasn't itself been through validatingLookup.
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          res.resume();
+          finish(null);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        res.on("data", (chunk: Buffer) => {
+          bytes += chunk.length;
+          chunks.push(chunk);
+          if (bytes > MAX_RESPONSE_BYTES) req.destroy();
+        });
+        res.on("end", () => finish(Buffer.concat(chunks).toString("utf8")));
+        res.on("close", () => finish(Buffer.concat(chunks).toString("utf8")));
+        res.on("error", () => finish(null));
+      },
+    );
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => finish(null));
+  });
 }
 
 /**
@@ -117,27 +211,10 @@ async function isSafeExternalUrl(urlString: string): Promise<boolean> {
 async function tryExtractDocketNumberFromOfficialSite(
   url: string,
 ): Promise<string | null> {
-  if (!(await isSafeExternalUrl(url))) return null;
   try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-      },
-      // Never follow a redirect into an unvalidated host - a public URL
-      // that 302s to an internal address would otherwise bypass the
-      // isSafeExternalUrl check above entirely. Losing the rare
-      // legitimate redirect is an acceptable cost for what's already
-      // just a best-effort heuristic.
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) return null;
-    const body = await response.text();
-    // Cap how much we scan - this is still untrusted third-party
-    // content and extractDocketNumberFromText only ever needs to look
-    // at a small prefix of the page.
-    return extractDocketNumberFromText(body.slice(0, 500_000));
+    const body = await fetchExternalText(url);
+    if (body === null) return null;
+    return extractDocketNumberFromText(body);
   } catch {
     return null;
   }
@@ -231,10 +308,29 @@ export async function runAggregatorDiscovery(
         ? null
         : await tryExtractDocketNumberFromOfficialSite(officialUrl);
 
-      let docket = await findDocketByCaseIdentifier({
-        docketNumber: leadDocketNumber ?? extractedDocketNumber,
-        caseName: lead.caseName,
-      });
+      let docket: RecapDocket | null;
+      try {
+        docket = await findDocketByCaseIdentifier({
+          docketNumber: leadDocketNumber ?? extractedDocketNumber,
+          caseName: lead.caseName,
+        });
+      } catch (err) {
+        // findDocketByCaseIdentifier deliberately rethrows a real failure
+        // (e.g. a CourtListener rate-limit hit, common given the shared
+        // budget - see courtlistener.ts) rather than masking it as "no
+        // match". That distinction matters to *this* call, but letting it
+        // propagate out of the per-lead try/catch below would drop the
+        // whole lead for the run - exactly the "unverified publication"
+        // this project's aggregator path exists to avoid losing. Record
+        // the failure for visibility and fall through to the same
+        // unverified branch a genuine no-match takes.
+        leadErrors.push(
+          `${pending.source}:${pending.identifier} docket lookup: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        docket = null;
+      }
       if (
         docket &&
         extractedDocketNumber &&
