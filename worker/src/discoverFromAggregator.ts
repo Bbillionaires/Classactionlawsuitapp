@@ -64,8 +64,22 @@ function isPrivateOrReservedIp(ip: string): boolean {
     if (normalized === "::1") return true; // loopback
     if (normalized.startsWith("fe80:")) return true; // link-local
     if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
-    const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateOrReservedIp(mapped[1]);
+    // IPv4-mapped IPv6 embeds a real IPv4 address that must be checked
+    // the same way - but it can show up in two different textual forms:
+    // dotted ("::ffff:1.2.3.4", what dns.lookup tends to return) or the
+    // compressed hex form ("::ffff:0102:0304", what `new URL()` always
+    // normalizes a literal like http://[::ffff:169.254.169.254]/ to -
+    // without handling the hex form too, that exact normalization would
+    // silently defeat this check for a bracketed IPv6 literal.
+    const dottedMapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (dottedMapped) return isPrivateOrReservedIp(dottedMapped[1]);
+    const hexMapped = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hexMapped) {
+      const hi = parseInt(hexMapped[1], 16);
+      const lo = parseInt(hexMapped[2], 16);
+      const dotted = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      return isPrivateOrReservedIp(dotted);
+    }
     return false;
   }
   return true; // unparseable - fail closed
@@ -141,7 +155,12 @@ function fetchExternalText(urlString: string): Promise<string | null> {
   // below is simply never invoked - so validatingLookup alone would let a
   // literal-IP SSRF payload (e.g. http://169.254.169.254/...) straight
   // through. Must be checked explicitly, before ever issuing the request.
-  if (net.isIP(hostname) && isPrivateOrReservedIp(hostname)) {
+  // `URL` keeps a literal IPv6 host bracketed (e.g. "[::1]"), which
+  // net.isIP doesn't recognize as an address at all - strip the brackets
+  // first or this check silently no-ops for every IPv6 literal.
+  const bracketedIpv6 = hostname.match(/^\[(.+)\]$/);
+  const literalIpCandidate = bracketedIpv6 ? bracketedIpv6[1] : hostname;
+  if (net.isIP(literalIpCandidate) && isPrivateOrReservedIp(literalIpCandidate)) {
     return Promise.resolve(null);
   }
 
