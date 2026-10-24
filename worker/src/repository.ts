@@ -292,7 +292,10 @@ interface ClaimRequestRow {
   id: number;
   member_id: number;
   settlement_id: number;
-  created_at: string;
+  // node-postgres returns a TIMESTAMPTZ column as a JS Date, not a
+  // string - there's no custom type parser in this project overriding
+  // that (see db.ts).
+  created_at: Date;
 }
 
 /**
@@ -409,7 +412,7 @@ export async function mergeDuplicateSettlements(pool: Pool): Promise<number> {
         // real-world settlement, but something concrete has to be chosen.
         const keepRow =
           memberRows.find((row) => row.settlement_id === keeperId) ??
-          [...memberRows].sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+          [...memberRows].sort((a, b) => a.created_at.getTime() - b.created_at.getTime())[0];
         if (keepRow.settlement_id !== keeperId) {
           await client.query(`UPDATE claim_requests SET settlement_id = $1 WHERE id = $2`, [
             keeperId,

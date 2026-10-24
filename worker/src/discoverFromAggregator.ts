@@ -24,7 +24,13 @@ const AGGREGATOR_LEADS_PER_RUN = Number(process.env.AGGREGATOR_LEADS_PER_RUN ?? 
 // double how many CourtListener calls one run makes. No floor here - an
 // operator setting AGGREGATOR_LEADS_PER_RUN=0 to pause this discovery path
 // must still get zero leads from either source, not one each.
-const PER_SOURCE_LEADS = Math.ceil(AGGREGATOR_LEADS_PER_RUN / 2);
+//
+// ceil for one source and floor for the other (not ceil for both) so the
+// two shares always sum to exactly AGGREGATOR_LEADS_PER_RUN - ceil'ing
+// both let an odd budget (e.g. the default of 3) silently become 4 leads
+// total, one more CourtListener cross-reference call than configured.
+const TCA_LEADS_PER_RUN = Math.ceil(AGGREGATOR_LEADS_PER_RUN / 2);
+const CLASS_ACTION_ORG_LEADS_PER_RUN = Math.floor(AGGREGATOR_LEADS_PER_RUN / 2);
 
 /**
  * One pending lead from either source, resolved to a common shape before
@@ -276,22 +282,48 @@ export async function runAggregatorDiscovery(
   pool: Pool,
   stats: RunStats,
 ): Promise<string[]> {
-  const [tcaUrls, classActionOrgLeads] = await Promise.all([
-    fetchOpenSettlementLeadUrls(PER_SOURCE_LEADS),
-    fetchClassActionOrgLeads(PER_SOURCE_LEADS),
-  ]);
-  const pendingLeads: PendingLead[] = [
-    ...tcaUrls.map((url): PendingLead => ({ source: "tca", identifier: url })),
-    ...classActionOrgLeads.map(
-      (lead): PendingLead => ({ source: "classActionOrg", identifier: lead.sourceUrl, lead }),
-    ),
-  ];
   // Collected (not just console.error'd) so a run where every lead fails -
   // e.g. the shared CourtListener budget being exhausted - shows up in the
   // stored worker_runs record that monitoring actually looks at, not just
   // in ephemeral process logs. See index.ts, which folds these into the
   // same `errors` list the other discovery paths report through.
   const leadErrors: string[] = [];
+
+  // allSettled, not all: politeFetch in both aggregator.ts and
+  // classActionOrgSource.ts lets a raw network failure (DNS, connection
+  // reset, TLS) throw rather than returning null, same as any other
+  // fetch(). Promise.all would let either source's rejection discard the
+  // OTHER source's already-fetched leads for the whole run - exactly the
+  // "one source failing takes the other down with it" bug this function's
+  // own design comment says must not happen.
+  const [tcaResult, classActionOrgResult] = await Promise.allSettled([
+    fetchOpenSettlementLeadUrls(TCA_LEADS_PER_RUN),
+    fetchClassActionOrgLeads(CLASS_ACTION_ORG_LEADS_PER_RUN),
+  ]);
+  const tcaUrls = tcaResult.status === "fulfilled" ? tcaResult.value : [];
+  if (tcaResult.status === "rejected") {
+    leadErrors.push(
+      `tca listing fetch: ${
+        tcaResult.reason instanceof Error ? tcaResult.reason.message : String(tcaResult.reason)
+      }`,
+    );
+  }
+  const classActionOrgLeads = classActionOrgResult.status === "fulfilled" ? classActionOrgResult.value : [];
+  if (classActionOrgResult.status === "rejected") {
+    leadErrors.push(
+      `classActionOrg listing fetch: ${
+        classActionOrgResult.reason instanceof Error
+          ? classActionOrgResult.reason.message
+          : String(classActionOrgResult.reason)
+      }`,
+    );
+  }
+  const pendingLeads: PendingLead[] = [
+    ...tcaUrls.map((url): PendingLead => ({ source: "tca", identifier: url })),
+    ...classActionOrgLeads.map(
+      (lead): PendingLead => ({ source: "classActionOrg", identifier: lead.sourceUrl, lead }),
+    ),
+  ];
 
   for (const pending of pendingLeads) {
     // Same spirit as discover.ts's per-docket isolation: one lead failing

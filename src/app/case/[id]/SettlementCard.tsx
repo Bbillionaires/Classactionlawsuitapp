@@ -20,6 +20,25 @@ function formatDate(value: string | null): string | null {
   });
 }
 
+/**
+ * settlement_website_url/claim_form_url come from third-party scraped
+ * listings (Top Class Actions, classaction.org) - not sanitized at the
+ * source against a scheme check, since a plain-text href is otherwise
+ * indistinguishable from a URL until parsed. A crafted or compromised
+ * listing entry could set either field to a `javascript:`/`data:` URL;
+ * rendered directly as an <a href>, that would execute in this site's
+ * origin when a visitor clicks "File a Claim". Only http/https is ever
+ * safe to render as a real link.
+ */
+function isSafeHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export default function SettlementCard({
   settlement,
   currentPath,
@@ -53,7 +72,8 @@ export default function SettlementCard({
     last_verified_at,
   } = settlement;
 
-  const claimUrl = claim_form_url ?? settlement_website_url;
+  const rawClaimUrl = claim_form_url ?? settlement_website_url;
+  const claimUrl = rawClaimUrl && isSafeHttpUrl(rawClaimUrl) ? rawClaimUrl : null;
   const isVerified = verification_status === "verified";
   const importantDates: Array<[string, string | null]> = [
     ["Claim deadline", claim_deadline],
