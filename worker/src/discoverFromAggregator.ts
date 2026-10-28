@@ -63,6 +63,10 @@ function isPrivateOrReservedIp(ip: string): boolean {
     if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
     if (a === 192 && b === 168) return true; // 192.168.0.0/16
     if (a === 0) return true; // 0.0.0.0/8
+    // 100.64.0.0/10 (carrier-grade NAT) - also where at least one major
+    // cloud provider (Alibaba Cloud, 100.100.100.200) serves its instance
+    // metadata, the exact target class this check exists to block.
+    if (a === 100 && b >= 64 && b <= 127) return true;
     return false;
   }
   if (net.isIPv6(ip)) {
@@ -83,6 +87,18 @@ function isPrivateOrReservedIp(ip: string): boolean {
     if (hexMapped) {
       const hi = parseInt(hexMapped[1], 16);
       const lo = parseInt(hexMapped[2], 16);
+      const dotted = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+      return isPrivateOrReservedIp(dotted);
+    }
+    // NAT64's well-known prefix (64:ff9b::/96) also embeds an arbitrary
+    // IPv4 address in its last 32 bits, same risk as the ::ffff: mapped
+    // form above on any network running NAT64/DNS64.
+    const nat64Dotted = normalized.match(/^64:ff9b::(\d+\.\d+\.\d+\.\d+)$/);
+    if (nat64Dotted) return isPrivateOrReservedIp(nat64Dotted[1]);
+    const nat64Hex = normalized.match(/^64:ff9b::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (nat64Hex) {
+      const hi = parseInt(nat64Hex[1], 16);
+      const lo = parseInt(nat64Hex[2], 16);
       const dotted = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
       return isPrivateOrReservedIp(dotted);
     }
