@@ -59,7 +59,13 @@ export async function fetchClassActionOrgLeads(
 
   let items: ListingItem[];
   try {
-    items = JSON.parse(itemsRaw);
+    const parsed: unknown = JSON.parse(itemsRaw);
+    // classaction.org's own markup, not a value this app controls - valid
+    // JSON that isn't an array (a format change on their end) would
+    // otherwise throw out of the `for...of` loop below instead of hitting
+    // this same graceful empty-result fallback.
+    if (!Array.isArray(parsed)) return [];
+    items = parsed;
   } catch {
     return [];
   }
