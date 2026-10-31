@@ -72,7 +72,13 @@ function isPrivateOrReservedIp(ip: string): boolean {
   if (net.isIPv6(ip)) {
     const normalized = ip.toLowerCase();
     if (normalized === "::1") return true; // loopback
-    if (normalized.startsWith("fe80:")) return true; // link-local
+    // fe80::/10 link-local - the whole range, not just addresses whose
+    // first group is literally "fe80". That range's top 10 bits fixed
+    // (1111111010) still leave its first 16-bit group free to be
+    // anything from fe80 to febf (e.g. fe90::1, febf::1), which a plain
+    // startsWith("fe80:") text check would miss entirely.
+    const firstGroup = parseInt(normalized.split(":")[0], 16);
+    if (firstGroup >= 0xfe80 && firstGroup <= 0xfebf) return true;
     if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
     // IPv4-mapped IPv6 embeds a real IPv4 address that must be checked
     // the same way - but it can show up in two different textual forms:
