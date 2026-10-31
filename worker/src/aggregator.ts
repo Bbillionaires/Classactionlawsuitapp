@@ -128,10 +128,19 @@ function fieldLink($: cheerio.CheerioAPI, headingId: string): string | null {
   return href || null;
 }
 
+/**
+ * This is a scraped `<a href>` from a third-party page, not a value this
+ * app controls - a crafted or compromised TCA listing could set it to
+ * `javascript:...`, which would execute in the site's own origin if ever
+ * rendered as a real link (see SettlementCard.tsx's own guard). Rejecting
+ * anything but http/https here means a bad value never even reaches
+ * storage, regardless of what renders it.
+ */
 function normalizeUrl(raw: string | null): string | null {
   if (!raw) return null;
   try {
-    return new URL(raw).toString();
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
   } catch {
     // TCA occasionally omits the scheme (e.g. "Kohama2026Settlement.com").
     try {

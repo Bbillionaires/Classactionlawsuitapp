@@ -292,8 +292,28 @@ interface ClaimRequestRow {
   id: number;
   member_id: number;
   settlement_id: number;
-  created_at: string;
+  status: string;
+  // node-postgres returns a TIMESTAMPTZ column as a JS Date, not a
+  // string - there's no custom type parser in this project overriding
+  // that (see db.ts).
+  created_at: Date;
 }
+
+// Higher = more real-world progress on a claim, and therefore more
+// important not to silently discard when a member has duplicate rows to
+// consolidate (see mergeDuplicateSettlements below) - a 'filed' request
+// already has a charged fee and submitted documents behind it, which
+// 'requested' does not. 'rejected'/'withdrawn' are terminal outcomes,
+// still worth more than an untouched 'requested' row. Unrecognized
+// values fail to the lowest priority (0) rather than throwing.
+const CLAIM_STATUS_PRIORITY: Record<string, number> = {
+  filed: 5,
+  rejected: 4,
+  withdrawn: 4,
+  ready_to_file: 3,
+  awaiting_documents: 2,
+  requested: 1,
+};
 
 /**
  * Merges duplicate settlement rows left over from before the
@@ -393,7 +413,7 @@ export async function mergeDuplicateSettlements(pool: Pool): Promise<number> {
       // exactly one, consolidated onto the keeper, instead of risking two
       // reassignments landing on the same (member, keeper) pair at once.
       const { rows: claimRequestRows } = await client.query<ClaimRequestRow>(
-        `SELECT id, member_id, settlement_id, created_at FROM claim_requests WHERE settlement_id = ANY($1::bigint[])`,
+        `SELECT id, member_id, settlement_id, status, created_at FROM claim_requests WHERE settlement_id = ANY($1::bigint[])`,
         [group.ids],
       );
       const claimRequestsByMember = new Map<number, ClaimRequestRow[]>();
@@ -403,25 +423,42 @@ export async function mergeDuplicateSettlements(pool: Pool): Promise<number> {
         claimRequestsByMember.set(row.member_id, forMember);
       }
       for (const memberRows of claimRequestsByMember.values()) {
-        // Prefer a request already on the keeper, if any; otherwise the
-        // member's original request (earliest) - which exact one barely
-        // matters since every row in this group represents the same
-        // real-world settlement, but something concrete has to be chosen.
-        const keepRow =
-          memberRows.find((row) => row.settlement_id === keeperId) ??
-          [...memberRows].sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
-        if (keepRow.settlement_id !== keeperId) {
-          await client.query(`UPDATE claim_requests SET settlement_id = $1 WHERE id = $2`, [
-            keeperId,
-            keepRow.id,
-          ]);
-        }
+        // Prefer whichever row has the most real-world progress
+        // (CLAIM_STATUS_PRIORITY) - picking by "already on the keeper"
+        // first, regardless of status, could silently delete a member's
+        // already-'filed' request (a charged fee, submitted documents)
+        // in favor of a fresher 'requested' row that just happens to
+        // already sit on the keeper. Only once status is tied does which
+        // settlement it's on, then recency, decide - at that point every
+        // row in this group represents the same real-world settlement,
+        // so something concrete just has to be chosen.
+        const keepRow = [...memberRows].sort((a, b) => {
+          const priorityDiff =
+            (CLAIM_STATUS_PRIORITY[b.status] ?? 0) - (CLAIM_STATUS_PRIORITY[a.status] ?? 0);
+          if (priorityDiff !== 0) return priorityDiff;
+          const aOnKeeper = a.settlement_id === keeperId;
+          const bOnKeeper = b.settlement_id === keeperId;
+          if (aOnKeeper !== bOnKeeper) return aOnKeeper ? -1 : 1;
+          return a.created_at.getTime() - b.created_at.getTime();
+        })[0];
+        // Delete the redundant rows BEFORE updating keepRow onto the
+        // keeper, not after: keepRow isn't always already the row on the
+        // keeper (see CLAIM_STATUS_PRIORITY above), so one of these
+        // "redundant" rows can itself already occupy (member_id,
+        // keeperId) - updating keepRow first would collide with it and
+        // violate the UNIQUE(member_id, settlement_id) constraint.
         const redundantIds = memberRows
           .filter((row) => row.id !== keepRow.id)
           .map((row) => row.id);
         if (redundantIds.length > 0) {
           await client.query(`DELETE FROM claim_requests WHERE id = ANY($1::bigint[])`, [
             redundantIds,
+          ]);
+        }
+        if (keepRow.settlement_id !== keeperId) {
+          await client.query(`UPDATE claim_requests SET settlement_id = $1 WHERE id = $2`, [
+            keeperId,
+            keepRow.id,
           ]);
         }
       }

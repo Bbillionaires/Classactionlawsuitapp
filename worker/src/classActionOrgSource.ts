@@ -59,7 +59,13 @@ export async function fetchClassActionOrgLeads(
 
   let items: ListingItem[];
   try {
-    items = JSON.parse(itemsRaw);
+    const parsed: unknown = JSON.parse(itemsRaw);
+    // classaction.org's own markup, not a value this app controls - valid
+    // JSON that isn't an array (a format change on their end) would
+    // otherwise throw out of the `for...of` loop below instead of hitting
+    // this same graceful empty-result fallback.
+    if (!Array.isArray(parsed)) return [];
+    items = parsed;
   } catch {
     return [];
   }
@@ -83,8 +89,15 @@ export async function fetchClassActionOrgLeads(
     // Guard against a card linking back to classaction.org itself (e.g. a
     // malformed or placeholder entry) rather than a real external official
     // site - same spirit as aggregator.ts skipping TCA's own listing URL.
+    // Also reject anything but http/https: this href is a scraped
+    // third-party attribute, not a value this app controls, and
+    // `new URL()` happily parses a `javascript:` URL without throwing -
+    // rendered as a real link downstream, that would execute in this
+    // site's own origin (see SettlementCard.tsx's own guard).
     try {
-      const hostname = new URL(officialUrl).hostname.toLowerCase();
+      const parsed = new URL(officialUrl);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") continue;
+      const hostname = parsed.hostname.toLowerCase();
       if (hostname === "classaction.org" || hostname.endsWith(".classaction.org")) continue;
     } catch {
       continue;
